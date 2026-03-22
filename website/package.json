@@ -12,6 +12,7 @@
     "@types/prismjs": "^1.26.6",
     "clsx": "^2.1.1",
     "gray-matter": "^4.0.3",
+    "mermaid": "^11.13.0",
     "next": "^15.1.0",
     "next-intl": "^3.26.0",
     "next-mdx-remote": "^6.0.0",

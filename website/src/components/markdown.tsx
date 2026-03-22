@@ -362,11 +362,72 @@ export function NavGrid({ children }: { children: React.ReactNode }) {
 }
 
 /* ══════════════════════════════════════════════════════════════════════
-   Mermaid-style sequence diagram (rendered as styled ASCII)
+   Mermaid sequence diagram (rendered via mermaid.js)
    ══════════════════════════════════════════════════════════════════════ */
 
+let mermaidIdCounter = 0
+
 export function SequenceDiagram({ children }: { children: string }) {
-  return <CodeBlock lang="mermaid" lineHeight="1.6" showLineNumbers={false}>{children}</CodeBlock>
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [svg, setSvg] = useState<string>('')
+  const [error, setError] = useState<string>('')
+  const idRef = useRef(`mermaid-${++mermaidIdCounter}-${Date.now()}`)
+
+  useEffect(() => {
+    let cancelled = false
+    async function render() {
+      try {
+        const mermaid = (await import('mermaid')).default
+        mermaid.initialize({
+          startOnLoad: false,
+          theme: 'neutral',
+          sequence: {
+            diagramMarginX: 16,
+            diagramMarginY: 16,
+            actorMargin: 60,
+            width: 180,
+            height: 40,
+            boxMargin: 8,
+            boxTextMargin: 6,
+            noteMargin: 12,
+            messageMargin: 40,
+            mirrorActors: false,
+            useMaxWidth: true,
+            wrap: true,
+          },
+          fontFamily: 'var(--font-primary)',
+          fontSize: 13,
+        })
+        const { svg: rendered } = await mermaid.render(idRef.current, children.trim())
+        if (!cancelled) setSvg(rendered)
+      } catch (e: any) {
+        if (!cancelled) setError(e?.message || 'Failed to render diagram')
+      }
+    }
+    render()
+    return () => { cancelled = true }
+  }, [children])
+
+  if (error) {
+    return <CodeBlock lang="mermaid" lineHeight="1.6" showLineNumbers={false}>{children}</CodeBlock>
+  }
+
+  return (
+    <figure className='m-0 bleed' style={{ padding: '4px 0' }}>
+      <div
+        ref={containerRef}
+        className="mermaid-diagram"
+        style={{
+          borderRadius: '8px',
+          border: '1px solid var(--divider)',
+          padding: '16px 8px',
+          overflow: 'auto',
+          background: 'var(--code-bg, #f6f8fa)',
+        }}
+        dangerouslySetInnerHTML={svg ? { __html: svg } : undefined}
+      />
+    </figure>
+  )
 }
 
 /* ══════════════════════════════════════════════════════════════════════
