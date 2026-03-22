@@ -104,20 +104,19 @@ WeChat messages become Pi prompts. Pi responses are sent back to WeChat. Typing 
 
 All SDKs follow the same layered design:
 
-<CodeBlock lang="diagram" lineHeight="1.3" showLineNumbers={false}>
-{`┌─────────────────────────────────────────┐
-│              Your Bot Code               │
-├─────────────────────────────────────────┤
-│         Bot Client (orchestrator)        │
-├──────────┬──────────┬──────────┬────────┤
-│  Poller  │  Sender  │  Typing  │ Media  │
-├──────────┴──────────┴──────────┴────────┤
-│         Context Store (token cache)      │
-├─────────────────────────────────────────┤
-│         Protocol / API (HTTP calls)      │
-├─────────────────────────────────────────┤
-│         Storage (credentials + state)    │
-└─────────────────────────────────────────┘`}
+<CodeBlock lang="mermaid" lineHeight="1.3" showLineNumbers={false}>
+{`graph TD
+    A["🤖 Your Bot Code"] --> B["Bot Client (Orchestrator)"]
+    B --> C["Poller"]
+    B --> D["Sender"]
+    B --> E["Typing"]
+    B --> F["Media"]
+    C --> G["Context Store (Token Cache)"]
+    D --> G
+    E --> G
+    F --> G
+    G --> H["Protocol / API (HTTP Calls)"]
+    H --> I["Storage (Credentials + State)"]`}
 </CodeBlock>
 
 Shared capabilities: QR login, long-poll, context_token management, AES-128-ECB CDN crypto, session recovery, smart text chunking.

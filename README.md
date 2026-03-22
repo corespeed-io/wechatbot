@@ -106,20 +106,19 @@ pi -e /path/to/wechatbot/pi-agent/src/index.ts
 
 ## 🏗 架构 / Architecture
 
-```
-┌─────────────────────────────────────────┐
-│           你的 Bot 代码 / Your Bot       │
-├─────────────────────────────────────────┤
-│        Bot Client（核心调度器）           │
-├──────────┬──────────┬──────────┬────────┤
-│  Poller  │  Sender  │  Typing  │ Media  │
-├──────────┴──────────┴──────────┴────────┤
-│       Context Store（Token 缓存）        │
-├─────────────────────────────────────────┤
-│       Protocol / API（HTTP 调用）        │
-├─────────────────────────────────────────┤
-│       Storage（凭证 & 状态持久化）        │
-└─────────────────────────────────────────┘
+```mermaid
+graph TD
+    A["🤖 你的 Bot 代码 / Your Bot"] --> B["Bot Client（核心调度器 / Orchestrator）"]
+    B --> C["Poller"]
+    B --> D["Sender"]
+    B --> E["Typing"]
+    B --> F["Media"]
+    C --> G["Context Store（Token 缓存）"]
+    D --> G
+    E --> G
+    F --> G
+    G --> H["Protocol / API（HTTP 调用）"]
+    H --> I["Storage（凭证 & 状态持久化）"]
 ```
 
 ## 📖 文档 / Documentation
