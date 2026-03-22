@@ -1,33 +1,32 @@
-# wechatbot
+# WeChatBot
 
-WeChat iLink Bot SDK — modular, production-grade, multi-language.
+<p align="center">
+  <strong>模块化、生产级、多语言微信 iLink Bot SDK</strong><br/>
+  <sub>Modular, production-grade, multi-language WeChat iLink Bot SDK</sub>
+</p>
 
-Let any agent connect to WeChat in 5 minutes. Inspired by [tencent-weixin/openclaw-weixin-cli](https://github.com/nicepkg/openclaw-weixin).
+<p align="center">
+  <a href="https://www.npmjs.com/package/@wechatbot/wechatbot"><img src="https://img.shields.io/npm/v/@wechatbot/wechatbot?style=flat-square&label=npm" alt="npm"></a>
+  <a href="https://github.com/corespeed-io/wechatbot/blob/main/LICENSE"><img src="https://img.shields.io/github/license/corespeed-io/wechatbot?style=flat-square" alt="License"></a>
+  <a href="https://github.com/corespeed-io/wechatbot"><img src="https://img.shields.io/github/stars/corespeed-io/wechatbot?style=flat-square" alt="Stars"></a>
+</p>
 
-## Pi Agent Extension
+---
 
-**Chat with Pi from WeChat** — scan a QR code, your WeChat messages become Pi prompts.
+5 分钟让任何 Agent 接入微信。灵感来自 [openclaw-weixin-cli](https://github.com/nicepkg/openclaw-weixin)。
 
-```bash
-# Load the extension
-pi -e /path/to/wechatbot/pi-agent/src/index.ts
+> Connect any agent to WeChat in 5 minutes. Inspired by [openclaw-weixin-cli](https://github.com/nicepkg/openclaw-weixin).
 
-# Then in pi:
-/wechat          # Shows QR code → scan in WeChat → connected!
-```
+## 📦 SDK 一览 / SDKs
 
-See [pi-agent/README.md](pi-agent/README.md) for full docs.
+| SDK | 安装 / Install | 状态 / Status |
+|-----|---------------|---------------|
+| [Node.js](nodejs/) | `npm install @wechatbot/wechatbot` | ✅ 生产就绪 |
+| [Python](python/) | `pip install wechatbot-sdk` | ✅ 生产就绪 |
+| [Go](golang/) | `go get github.com/corespeed-io/wechatbot-go` | ✅ 生产就绪 |
+| [Rust](rust/) | `wechatbot = "0.1"` | ✅ 生产就绪 |
 
-## SDKs
-
-| SDK | Install | Status |
-|---|---|---|
-| [Node.js](nodejs/) | `npm install @wechatbot/wechatbot` | ✓ 42 files, 41 tests |
-| [Python](python/) | `pip install wechatbot-sdk` | ✓ 7 files, 17 tests |
-| [Go](golang/) | `go get github.com/anthropic/wechatbot-go` | ✓ |
-| [Rust](rust/) | `wechatbot = "0.1"` | ✓ |
-
-## Quick Start
+## ⚡ 快速开始 / Quick Start
 
 ### Node.js
 
@@ -35,9 +34,9 @@ See [pi-agent/README.md](pi-agent/README.md) for full docs.
 import { WeChatBot } from '@wechatbot/wechatbot'
 
 const bot = new WeChatBot()
-await bot.login()
+await bot.login()                             // 扫码登录 / QR code login
 bot.onMessage(async (msg) => {
-  await bot.reply(msg, `Echo: ${msg.text}`)
+  await bot.reply(msg, `Echo: ${msg.text}`)   // 自动回复 / Auto reply
 })
 await bot.start()
 ```
@@ -64,91 +63,110 @@ bot.on_message(Box::new(|msg| {
 bot.run().await?;
 ```
 
-## Features
+## 🤖 Pi Agent 扩展 / Pi Agent Extension
 
-All SDKs share the same capabilities:
+在微信中直接与 [Pi 编程助手](https://github.com/badlogic/pi-mono) 对话 — 扫码即连。
 
-- 🔐 **QR Code Login** — scan-to-login with credential persistence (`~/.wechatbot/`)
-- 📨 **Long-Poll Messaging** — reliable message receiving with cursor management
-- 💬 **Rich Media** — images, files, voice, video (upload + download)
-- 🔗 **context_token** — automatic lifecycle management, persisted across restarts
-- ⌨️ **Typing Indicators** — "对方正在输入中" with ticket caching
-- 🔒 **CDN Crypto** — AES-128-ECB with dual key format support
-- ♻️ **Session Recovery** — automatic re-login on session expiry (`-14`)
-- 📝 **Smart Chunking** — text split at natural boundaries (paragraph → line → space)
+> Chat with [Pi coding agent](https://github.com/badlogic/pi-mono) directly from WeChat — scan QR code to connect.
 
-### Node.js Extras
+```bash
+# 加载扩展 / Load the extension
+pi -e /path/to/wechatbot/pi-agent/src/index.ts
 
-- 🧩 **Middleware Pipeline** — Express/Koa-style composable middleware
-- 📦 **Pluggable Storage** — file, memory, or bring your own (Redis, SQLite...)
-- 🎯 **Typed Events** — full IntelliSense for lifecycle monitoring
-- 📝 **Structured Logging** — leveled, contextual, pluggable transports
-- 🏗️ **Fluent MessageBuilder** — `.text().image().file().build()`
+# 在 Pi 中执行 / Then in Pi:
+/wechat          # 显示二维码 → 微信扫码 → 连接成功！
+```
 
-## Architecture
+详见 [pi-agent/README.md](pi-agent/README.md)。
+
+## ✨ 核心功能 / Features
+
+所有 SDK 共享以下能力：
+
+| 功能 | 说明 |
+|------|------|
+| 🔐 扫码登录 | 凭证持久化，存储于 `~/.wechatbot/` |
+| 📨 长轮询消息 | 可靠消息接收，自动游标管理 |
+| 💬 富媒体支持 | 图片、文件、语音、视频（上传 + 下载） |
+| 🔗 context_token | 自动生命周期管理，跨重启持久化 |
+| ⌨️ 输入状态 | "对方正在输入中"，含 ticket 缓存 |
+| 🔒 CDN 加密 | AES-128-ECB，支持双密钥格式 |
+| ♻️ 会话恢复 | 会话过期（`-14`）自动重新登录 |
+| 📝 智能分片 | 按自然边界拆分文本（段落 → 行 → 空格） |
+
+### Node.js 独有功能
+
+| 功能 | 说明 |
+|------|------|
+| 🧩 中间件管道 | Express/Koa 风格可组合中间件 |
+| 📦 可插拔存储 | 文件、内存，或自定义（Redis、SQLite…） |
+| 🎯 类型化事件 | 完整 IntelliSense 生命周期监控 |
+| 📝 结构化日志 | 分级、上下文感知、可插拔传输 |
+| 🏗️ 消息构建器 | `.text().image().file().build()` 链式 API |
+
+## 🏗 架构 / Architecture
 
 ```
 ┌─────────────────────────────────────────┐
-│              Your Bot Code               │
+│           你的 Bot 代码 / Your Bot       │
 ├─────────────────────────────────────────┤
-│         Bot Client (orchestrator)        │
+│        Bot Client（核心调度器）           │
 ├──────────┬──────────┬──────────┬────────┤
 │  Poller  │  Sender  │  Typing  │ Media  │
 ├──────────┴──────────┴──────────┴────────┤
-│         Context Store (token cache)      │
+│       Context Store（Token 缓存）        │
 ├─────────────────────────────────────────┤
-│         Protocol / API (HTTP calls)      │
+│       Protocol / API（HTTP 调用）        │
 ├─────────────────────────────────────────┤
-│         Storage (credentials + state)    │
+│       Storage（凭证 & 状态持久化）        │
 └─────────────────────────────────────────┘
 ```
 
-## Documentation
+## 📖 文档 / Documentation
 
-| Document | Description |
-|---|---|
-| [docs/protocol.md](docs/protocol.md) | iLink Bot API protocol reference |
-| [pi-agent/README.md](pi-agent/README.md) | Pi extension (WeChat ↔ Pi bridge) |
-| [docs/architecture.md](docs/architecture.md) | Architecture & SDK comparison |
-| [nodejs/README.md](nodejs/README.md) | Node.js SDK docs |
-| [python/README.md](python/README.md) | Python SDK docs |
-| [golang/README.md](golang/README.md) | Go SDK docs |
-| [rust/README.md](rust/README.md) | Rust SDK docs |
+| 文档 | 说明 |
+|------|------|
+| [docs/protocol.md](docs/protocol.md) | iLink Bot API 协议参考 |
+| [docs/architecture.md](docs/architecture.md) | 架构设计 & SDK 对比 |
+| [nodejs/README.md](nodejs/README.md) | Node.js SDK 文档 |
+| [python/README.md](python/README.md) | Python SDK 文档 |
+| [golang/README.md](golang/README.md) | Go SDK 文档 |
+| [rust/README.md](rust/README.md) | Rust SDK 文档 |
+| [pi-agent/README.md](pi-agent/README.md) | Pi 扩展文档（微信 ↔ Pi 桥接） |
 
-## Website
+## 🌐 网站 / Website
 
-The project includes a [bilingual website](website/) (English + 中文) built with Next.js + next-intl.
+项目包含双语网站（中文 + English），基于 Next.js + next-intl 构建。
 
 ```bash
 cd website && npm run dev  # http://localhost:8045
 ```
 
-## Project Structure
+## 📁 项目结构 / Project Structure
 
 ```
 wechatbot/
-├── pi-agent/              # Pi extension (WeChat ↔ Pi bridge)
-│   ├── src/index.ts    # Extension entry (commands, events)
-│   └── src/wechat.ts   # WeChat iLink client
-├── nodejs/             # Node.js SDK (TypeScript, 42 files, 41 tests)
-│   ├── src/            # 10 modules
-│   ├── tests/          # 41 unit tests
-│   └── examples/       # 3 example bots
-├── python/             # Python SDK (async/aiohttp, 17 tests)
-│   └── wechatbot/      # client, protocol, auth, crypto, types, errors
-├── golang/             # Go SDK
-│   ├── bot.go          # Bot client
-│   ├── types.go        # All types
-│   └── internal/       # protocol, auth, crypto
-├── rust/               # Rust SDK
-│   ├── src/            # 6 modules
-│   └── examples/       # Echo bot
-├── docs/               # Shared documentation
-│   ├── protocol.md     # iLink API protocol spec
-│   └── architecture.md # Architecture & comparison
-└── website/            # Next.js marketing site (en/zh)
+├── nodejs/                # Node.js SDK（TypeScript）
+│   ├── src/               #   11 个模块
+│   ├── tests/             #   6 个测试文件
+│   └── examples/          #   3 个示例 Bot
+├── python/                # Python SDK（async/aiohttp）
+│   ├── wechatbot/         #   6 个模块
+│   └── tests/             #   2 个测试文件
+├── golang/                # Go SDK（纯标准库）
+│   ├── bot.go             #   Bot 客户端
+│   ├── types.go           #   类型定义
+│   └── internal/          #   protocol, auth, crypto
+├── rust/                  # Rust SDK
+│   └── src/               #   6 个模块
+├── pi-agent/              # Pi 扩展（微信 ↔ Pi 桥接）
+│   └── src/               #   扩展入口 & 微信客户端
+├── docs/                  # 共享文档
+│   ├── protocol.md        #   iLink API 协议规范
+│   └── architecture.md    #   架构 & SDK 对比
+└── website/               # Next.js 双语网站（zh/en）
 ```
 
-## License
+## 📄 License
 
-MIT
+[MIT](LICENSE)
