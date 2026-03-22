@@ -4,31 +4,28 @@ All three SDKs (Node.js, Go, Rust) follow the same layered architecture and expo
 
 ## Layers
 
-```
-┌────────────────────────────────────────┐
-│            Application                 │  ← Your bot code
-├────────────────────────────────────────┤
-│         Middleware (Node.js)           │  ← Optional processing pipeline
-├────────────────────────────────────────┤
-│           Bot Client                   │  ← Orchestrator: login, run, reply
-├────────┬──────────┬──────────┬─────────┤
-│ Poller │  Sender  │  Typing  │  Media  │  ← Services
-├────────┴──────────┴──────────┴─────────┤
-│          Context Store                 │  ← context_token lifecycle
-├────────────────────────────────────────┤
-│           Protocol / API               │  ← Raw HTTP calls to iLink
-├────────────────────────────────────────┤
-│         Transport / HTTP               │  ← HTTP client with retry
-├────────────────────────────────────────┤
-│            Storage                     │  ← Credentials + state persistence
-└────────────────────────────────────────┘
+```mermaid
+graph TD
+    A["🤖 Application — Your Bot Code"] --> B["Middleware (Node.js only)"]
+    B --> C["Bot Client — Orchestrator: login, run, reply"]
+    C --> D["Poller"]
+    C --> E["Sender"]
+    C --> F["Typing"]
+    C --> G["Media"]
+    D --> H["Context Store — context_token lifecycle"]
+    E --> H
+    F --> H
+    G --> H
+    H --> I["Protocol / API — Raw HTTP calls to iLink"]
+    I --> J["Transport / HTTP — HTTP client with retry"]
+    J --> K["Storage — Credentials + state persistence"]
 ```
 
 ## SDK Comparison
 
 | Feature | Node.js | Go | Rust |
 |---|---|---|---|
-| Package | `@wechatbot/wechatbot` | `github.com/anthropic/wechatbot-go` | `wechatbot` (crates.io) |
+| Package | `@wechatbot/wechatbot` | `github.com/corespeed-io/wechatbot-go` | `wechatbot` (crates.io) |
 | Async model | `async/await` (Promises) | goroutines + `context.Context` | `async/await` (tokio) |
 | Middleware | ✓ Express-style pipeline | — (use handler composition) | — (use closures) |
 | Storage | Pluggable (file/memory/custom) | File-based | File-based |
