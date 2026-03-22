@@ -370,6 +370,33 @@ export function SequenceDiagram({ children }: { children: string }) {
 }
 
 /* ══════════════════════════════════════════════════════════════════════
+   DemoVideo — hero video player
+   ══════════════════════════════════════════════════════════════════════ */
+
+export function DemoVideo({ src, caption }: { src: string; caption?: string }) {
+  return (
+    <figure className='m-0 bleed' style={{ padding: '4px 0' }}>
+      <video
+        src={src}
+        controls
+        playsInline
+        muted
+        autoPlay
+        loop
+        preload='metadata'
+        style={{
+          width: '100%',
+          borderRadius: '8px',
+          border: '1px solid var(--divider)',
+          background: '#000',
+        }}
+      />
+      {caption && <Caption>{caption}</Caption>}
+    </figure>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════════
    EditorialPage — shell with header + sidebar + content
    ══════════════════════════════════════════════════════════════════════ */
 
