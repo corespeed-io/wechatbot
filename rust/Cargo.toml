@@ -5,6 +5,9 @@ edition = "2021"
 description = "WeChat iLink Bot SDK for Rust"
 license = "MIT"
 readme = "README.md"
+repository = "https://github.com/corespeed-io/wechatbot"
+homepage = "https://github.com/corespeed-io/wechatbot"
+documentation = "https://docs.rs/wechatbot"
 
 [dependencies]
 aes = "0.8"

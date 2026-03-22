@@ -135,11 +135,9 @@ graph TD
 
 ## 🌐 网站 / Website
 
-项目包含双语网站（中文 + English），基于 Next.js + next-intl 构建。
+双语文档网站已移至独立仓库：[jiweiyuan/wechatbot-landing](https://github.com/jiweiyuan/wechatbot-landing)
 
-```bash
-cd website && npm run dev  # http://localhost:8045
-```
+> The bilingual documentation website has been moved to a separate repository: [jiweiyuan/wechatbot-landing](https://github.com/jiweiyuan/wechatbot-landing)
 
 ## 📁 项目结构 / Project Structure
 
@@ -160,10 +158,9 @@ wechatbot/
 │   └── src/               #   6 个模块
 ├── pi-agent/              # Pi 扩展（微信 ↔ Pi 桥接）
 │   └── src/               #   扩展入口 & 微信客户端
-├── docs/                  # 共享文档
-│   ├── protocol.md        #   iLink API 协议规范
-│   └── architecture.md    #   架构 & SDK 对比
-└── website/               # Next.js 双语网站（zh/en）
+└── docs/                  # 共享文档
+    ├── protocol.md        #   iLink API 协议规范
+    └── architecture.md    #   架构 & SDK 对比
 ```
 
 ## 📄 License
