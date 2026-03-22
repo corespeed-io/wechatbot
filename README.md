@@ -1,7 +1,7 @@
 # WeChatBot
 
 <p align="center">
-  <strong>模块化、生产级、多语言微信 iLink Bot SDK</strong><br/>
+  <strong>微信 iLink Bot SDK for OpenClaw / AI Agent</strong><br/>
   <sub>Modular, production-grade, multi-language WeChat iLink Bot SDK</sub>
 </p>
 
