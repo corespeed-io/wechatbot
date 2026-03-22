@@ -379,52 +379,63 @@ export function NavGrid({ children }: { children: React.ReactNode }) {
    Mermaid sequence diagram (rendered via mermaid.js)
    ══════════════════════════════════════════════════════════════════════ */
 
-let mermaidIdCounter = 0
+let mermaidInitialized = false
 
 export function SequenceDiagram({ children }: { children: string }) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const [svg, setSvg] = useState<string>('')
-  const [error, setError] = useState<string>('')
-  const idRef = useRef(`mermaid-${++mermaidIdCounter}-${Date.now()}`)
+  const [rendered, setRendered] = useState(false)
 
   useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
     let cancelled = false
+
     async function render() {
       try {
         const mermaid = (await import('mermaid')).default
-        mermaid.initialize({
-          startOnLoad: false,
-          theme: 'neutral',
-          sequence: {
-            diagramMarginX: 16,
-            diagramMarginY: 16,
-            actorMargin: 60,
-            width: 180,
-            height: 40,
-            boxMargin: 8,
-            boxTextMargin: 6,
-            noteMargin: 12,
-            messageMargin: 40,
-            mirrorActors: false,
-            useMaxWidth: true,
-            wrap: true,
-          },
-          fontFamily: 'var(--font-primary)',
-          fontSize: 13,
-        })
-        const { svg: rendered } = await mermaid.render(idRef.current, children.trim())
-        if (!cancelled) setSvg(rendered)
-      } catch (e: any) {
-        if (!cancelled) setError(e?.message || 'Failed to render diagram')
+        if (!mermaidInitialized) {
+          mermaid.initialize({
+            startOnLoad: false,
+            theme: 'neutral',
+            sequence: {
+              diagramMarginX: 16,
+              diagramMarginY: 16,
+              actorMargin: 60,
+              width: 180,
+              height: 40,
+              boxMargin: 8,
+              boxTextMargin: 6,
+              noteMargin: 12,
+              messageMargin: 40,
+              mirrorActors: false,
+              useMaxWidth: true,
+              wrap: true,
+            },
+            fontFamily: 'var(--font-primary)',
+            fontSize: 13,
+          })
+          mermaidInitialized = true
+        }
+        const id = `mermaid-${Math.random().toString(36).slice(2, 10)}`
+        const { svg } = await mermaid.render(id, children.trim())
+        if (!cancelled && el) {
+          el.innerHTML = svg
+          setRendered(true)
+        }
+      } catch (e) {
+        // Fallback: show as syntax-highlighted code
+        if (!cancelled && el) {
+          el.textContent = children.trim()
+          el.style.whiteSpace = 'pre'
+          el.style.fontFamily = 'var(--font-code)'
+          el.style.fontSize = '12px'
+          setRendered(true)
+        }
       }
     }
     render()
     return () => { cancelled = true }
   }, [children])
-
-  if (error) {
-    return <CodeBlock lang="mermaid" lineHeight="1.6" showLineNumbers={false}>{children}</CodeBlock>
-  }
 
   return (
     <figure className='m-0 bleed' style={{ padding: '4px 0' }}>
@@ -437,8 +448,8 @@ export function SequenceDiagram({ children }: { children: string }) {
           padding: '16px 8px',
           overflow: 'auto',
           background: 'var(--code-bg, #f6f8fa)',
+          minHeight: rendered ? undefined : '200px',
         }}
-        dangerouslySetInnerHTML={svg ? { __html: svg } : undefined}
       />
     </figure>
   )
