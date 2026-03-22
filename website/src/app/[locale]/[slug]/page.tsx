@@ -35,9 +35,32 @@ export async function generateMetadata({
   const result = loadContent(locale, slug)
   if (!result) return {}
 
+  const { title, description } = result.data
   return {
-    title: result.data.title,
-    description: result.data.description,
+    title,
+    description,
+    openGraph: {
+      title,
+      description,
+      url: `https://wechatbot.corespeed.io/${locale}/${slug}`,
+      siteName: 'WeChatBot',
+      images: [
+        {
+          url: 'https://opengraph.githubassets.com/1/corespeed-io/wechatbot',
+          width: 1200,
+          height: 600,
+          alt: title,
+        },
+      ],
+      locale: locale === 'zh' ? 'zh_CN' : 'en_US',
+      type: 'website',
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title,
+      description,
+      images: ['https://opengraph.githubassets.com/1/corespeed-io/wechatbot'],
+    },
   }
 }
 
