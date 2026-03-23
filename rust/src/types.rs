@@ -231,3 +231,137 @@ pub struct Credentials {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub saved_at: Option<String>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn message_type_values() {
+        assert_eq!(MessageType::User as i32, 1);
+        assert_eq!(MessageType::Bot as i32, 2);
+    }
+
+    #[test]
+    fn message_state_values() {
+        assert_eq!(MessageState::New as i32, 0);
+        assert_eq!(MessageState::Generating as i32, 1);
+        assert_eq!(MessageState::Finish as i32, 2);
+    }
+
+    #[test]
+    fn message_item_type_values() {
+        assert_eq!(MessageItemType::Text as i32, 1);
+        assert_eq!(MessageItemType::Image as i32, 2);
+        assert_eq!(MessageItemType::Voice as i32, 3);
+        assert_eq!(MessageItemType::File as i32, 4);
+        assert_eq!(MessageItemType::Video as i32, 5);
+    }
+
+    #[test]
+    fn wire_message_json_round_trip() {
+        let wire = WireMessage {
+            from_user_id: "user1".to_string(),
+            to_user_id: "bot1".to_string(),
+            client_id: "c1".to_string(),
+            create_time_ms: 1700000000000,
+            message_type: MessageType::User,
+            message_state: MessageState::Finish,
+            context_token: "ctx".to_string(),
+            item_list: vec![WireMessageItem {
+                item_type: MessageItemType::Text,
+                text_item: Some(TextItem { text: "hello".to_string() }),
+                image_item: None, voice_item: None, file_item: None, video_item: None, ref_msg: None,
+            }],
+        };
+        let json = serde_json::to_string(&wire).unwrap();
+        let decoded: WireMessage = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.from_user_id, "user1");
+        assert_eq!(decoded.message_type, MessageType::User);
+        assert_eq!(decoded.item_list.len(), 1);
+        assert_eq!(decoded.item_list[0].text_item.as_ref().unwrap().text, "hello");
+    }
+
+    #[test]
+    fn credentials_json_camel_case() {
+        let creds = Credentials {
+            token: "tok".to_string(),
+            base_url: "https://api.example.com".to_string(),
+            account_id: "acc1".to_string(),
+            user_id: "uid1".to_string(),
+            saved_at: Some("2024-01-01T00:00:00Z".to_string()),
+        };
+        let json = serde_json::to_string(&creds).unwrap();
+        assert!(json.contains("\"baseUrl\""), "expected camelCase baseUrl");
+        assert!(json.contains("\"accountId\""), "expected camelCase accountId");
+        assert!(json.contains("\"userId\""), "expected camelCase userId");
+
+        let decoded: Credentials = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.token, "tok");
+        assert_eq!(decoded.base_url, "https://api.example.com");
+    }
+
+    #[test]
+    fn credentials_omits_none_saved_at() {
+        let creds = Credentials {
+            token: "tok".to_string(),
+            base_url: "https://api.example.com".to_string(),
+            account_id: "acc1".to_string(),
+            user_id: "uid1".to_string(),
+            saved_at: None,
+        };
+        let json = serde_json::to_string(&creds).unwrap();
+        assert!(!json.contains("saved_at"), "should omit None saved_at");
+    }
+
+    #[test]
+    fn cdn_media_json() {
+        let media = CDNMedia {
+            encrypt_query_param: "param=abc".to_string(),
+            aes_key: "key123".to_string(),
+            encrypt_type: Some(1),
+        };
+        let json = serde_json::to_string(&media).unwrap();
+        let decoded: CDNMedia = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.encrypt_query_param, "param=abc");
+        assert_eq!(decoded.aes_key, "key123");
+        assert_eq!(decoded.encrypt_type, Some(1));
+    }
+
+    #[test]
+    fn wire_message_with_image() {
+        let wire = WireMessage {
+            from_user_id: "user1".to_string(),
+            to_user_id: "bot1".to_string(),
+            client_id: "c1".to_string(),
+            create_time_ms: 1700000000000,
+            message_type: MessageType::User,
+            message_state: MessageState::Finish,
+            context_token: "ctx".to_string(),
+            item_list: vec![WireMessageItem {
+                item_type: MessageItemType::Image,
+                text_item: None,
+                image_item: Some(ImageItem {
+                    media: None, thumb_media: None,
+                    aeskey: Some("key".to_string()),
+                    url: Some("http://img.jpg".to_string()),
+                    mid_size: Some(1024),
+                    thumb_width: Some(100),
+                    thumb_height: Some(200),
+                }),
+                voice_item: None, file_item: None, video_item: None, ref_msg: None,
+            }],
+        };
+        let json = serde_json::to_string(&wire).unwrap();
+        let decoded: WireMessage = serde_json::from_str(&json).unwrap();
+        let img = decoded.item_list[0].image_item.as_ref().unwrap();
+        assert_eq!(img.url, Some("http://img.jpg".to_string()));
+        assert_eq!(img.thumb_width, Some(100));
+    }
+
+    #[test]
+    fn content_type_equality() {
+        assert_eq!(ContentType::Text, ContentType::Text);
+        assert_ne!(ContentType::Text, ContentType::Image);
+    }
+}

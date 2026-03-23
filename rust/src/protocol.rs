@@ -3,7 +3,7 @@
 use base64::Engine;
 use rand::RngCore;
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use std::time::Duration;
 use uuid::Uuid;

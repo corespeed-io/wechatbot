@@ -426,3 +426,278 @@ fn chrono_now() -> String {
         .unwrap();
     format!("{}Z", dur.as_secs())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn chunk_text_short() {
+        let chunks = chunk_text("hello", 100);
+        assert_eq!(chunks, vec!["hello"]);
+    }
+
+    #[test]
+    fn chunk_text_empty() {
+        let chunks = chunk_text("", 100);
+        assert_eq!(chunks, vec![""]);
+    }
+
+    #[test]
+    fn chunk_text_splits_on_paragraph() {
+        let text = "aaaa\n\nbbbb";
+        let chunks = chunk_text(text, 7);
+        assert_eq!(chunks, vec!["aaaa\n\n", "bbbb"]);
+    }
+
+    #[test]
+    fn chunk_text_splits_on_newline() {
+        let text = "aaaa\nbbbb";
+        let chunks = chunk_text(text, 7);
+        assert_eq!(chunks, vec!["aaaa\n", "bbbb"]);
+    }
+
+    #[test]
+    fn chunk_text_exact_limit() {
+        let text = "abcdef";
+        let chunks = chunk_text(text, 6);
+        assert_eq!(chunks, vec!["abcdef"]);
+    }
+
+    #[test]
+    fn detect_type_text() {
+        let items = vec![WireMessageItem {
+            item_type: MessageItemType::Text,
+            text_item: Some(TextItem { text: "hi".to_string() }),
+            image_item: None, voice_item: None, file_item: None, video_item: None, ref_msg: None,
+        }];
+        assert_eq!(detect_type(&items), ContentType::Text);
+    }
+
+    #[test]
+    fn detect_type_image() {
+        let items = vec![WireMessageItem {
+            item_type: MessageItemType::Image,
+            text_item: None,
+            image_item: Some(ImageItem {
+                media: None, thumb_media: None, aeskey: None,
+                url: Some("http://img".to_string()),
+                mid_size: None, thumb_width: None, thumb_height: None,
+            }),
+            voice_item: None, file_item: None, video_item: None, ref_msg: None,
+        }];
+        assert_eq!(detect_type(&items), ContentType::Image);
+    }
+
+    #[test]
+    fn detect_type_empty() {
+        assert_eq!(detect_type(&[]), ContentType::Text);
+    }
+
+    #[test]
+    fn extract_text_single() {
+        let items = vec![WireMessageItem {
+            item_type: MessageItemType::Text,
+            text_item: Some(TextItem { text: "hello world".to_string() }),
+            image_item: None, voice_item: None, file_item: None, video_item: None, ref_msg: None,
+        }];
+        assert_eq!(extract_text(&items), "hello world");
+    }
+
+    #[test]
+    fn extract_text_multi() {
+        let items = vec![
+            WireMessageItem {
+                item_type: MessageItemType::Text,
+                text_item: Some(TextItem { text: "line1".to_string() }),
+                image_item: None, voice_item: None, file_item: None, video_item: None, ref_msg: None,
+            },
+            WireMessageItem {
+                item_type: MessageItemType::Text,
+                text_item: Some(TextItem { text: "line2".to_string() }),
+                image_item: None, voice_item: None, file_item: None, video_item: None, ref_msg: None,
+            },
+        ];
+        assert_eq!(extract_text(&items), "line1\nline2");
+    }
+
+    #[test]
+    fn extract_text_image_url() {
+        let items = vec![WireMessageItem {
+            item_type: MessageItemType::Image,
+            text_item: None,
+            image_item: Some(ImageItem {
+                media: None, thumb_media: None, aeskey: None,
+                url: Some("http://img.jpg".to_string()),
+                mid_size: None, thumb_width: None, thumb_height: None,
+            }),
+            voice_item: None, file_item: None, video_item: None, ref_msg: None,
+        }];
+        assert_eq!(extract_text(&items), "http://img.jpg");
+    }
+
+    #[test]
+    fn extract_text_image_placeholder() {
+        let items = vec![WireMessageItem {
+            item_type: MessageItemType::Image,
+            text_item: None,
+            image_item: Some(ImageItem {
+                media: None, thumb_media: None, aeskey: None, url: None,
+                mid_size: None, thumb_width: None, thumb_height: None,
+            }),
+            voice_item: None, file_item: None, video_item: None, ref_msg: None,
+        }];
+        assert_eq!(extract_text(&items), "[image]");
+    }
+
+    #[test]
+    fn extract_text_voice_with_text() {
+        let items = vec![WireMessageItem {
+            item_type: MessageItemType::Voice,
+            text_item: None, image_item: None,
+            voice_item: Some(VoiceItem {
+                media: None, encode_type: None,
+                text: Some("hello".to_string()), playtime: None,
+            }),
+            file_item: None, video_item: None, ref_msg: None,
+        }];
+        assert_eq!(extract_text(&items), "hello");
+    }
+
+    #[test]
+    fn extract_text_file_name() {
+        let items = vec![WireMessageItem {
+            item_type: MessageItemType::File,
+            text_item: None, image_item: None, voice_item: None,
+            file_item: Some(FileItem {
+                media: None, file_name: Some("doc.pdf".to_string()), md5: None, len: None,
+            }),
+            video_item: None, ref_msg: None,
+        }];
+        assert_eq!(extract_text(&items), "doc.pdf");
+    }
+
+    #[test]
+    fn extract_text_video() {
+        let items = vec![WireMessageItem {
+            item_type: MessageItemType::Video,
+            text_item: None, image_item: None, voice_item: None, file_item: None,
+            video_item: Some(VideoItem {
+                media: None, video_size: None, play_length: None, thumb_media: None,
+            }),
+            ref_msg: None,
+        }];
+        assert_eq!(extract_text(&items), "[video]");
+    }
+
+    #[test]
+    fn parse_message_user_text() {
+        let wire = WireMessage {
+            from_user_id: "user123".to_string(),
+            to_user_id: "bot456".to_string(),
+            client_id: "c1".to_string(),
+            create_time_ms: 1700000000000,
+            message_type: MessageType::User,
+            message_state: MessageState::Finish,
+            context_token: "ctx-abc".to_string(),
+            item_list: vec![WireMessageItem {
+                item_type: MessageItemType::Text,
+                text_item: Some(TextItem { text: "hello".to_string() }),
+                image_item: None, voice_item: None, file_item: None, video_item: None, ref_msg: None,
+            }],
+        };
+        let msg = parse_message(&wire).unwrap();
+        assert_eq!(msg.user_id, "user123");
+        assert_eq!(msg.text, "hello");
+        assert_eq!(msg.content_type, ContentType::Text);
+        assert_eq!(msg.context_token, "ctx-abc");
+    }
+
+    #[test]
+    fn parse_message_skips_bot() {
+        let wire = WireMessage {
+            from_user_id: "bot456".to_string(),
+            to_user_id: "user123".to_string(),
+            client_id: "c1".to_string(),
+            create_time_ms: 1700000000000,
+            message_type: MessageType::Bot,
+            message_state: MessageState::Finish,
+            context_token: "ctx".to_string(),
+            item_list: vec![WireMessageItem {
+                item_type: MessageItemType::Text,
+                text_item: Some(TextItem { text: "reply".to_string() }),
+                image_item: None, voice_item: None, file_item: None, video_item: None, ref_msg: None,
+            }],
+        };
+        assert!(parse_message(&wire).is_none());
+    }
+
+    #[test]
+    fn parse_message_with_image() {
+        let wire = WireMessage {
+            from_user_id: "user123".to_string(),
+            to_user_id: "bot456".to_string(),
+            client_id: "c1".to_string(),
+            create_time_ms: 1700000000000,
+            message_type: MessageType::User,
+            message_state: MessageState::Finish,
+            context_token: "ctx".to_string(),
+            item_list: vec![WireMessageItem {
+                item_type: MessageItemType::Image,
+                text_item: None,
+                image_item: Some(ImageItem {
+                    media: None, thumb_media: None,
+                    aeskey: Some("key".to_string()),
+                    url: Some("http://img.jpg".to_string()),
+                    mid_size: None,
+                    thumb_width: Some(100),
+                    thumb_height: Some(200),
+                }),
+                voice_item: None, file_item: None, video_item: None, ref_msg: None,
+            }],
+        };
+        let msg = parse_message(&wire).unwrap();
+        assert_eq!(msg.images.len(), 1);
+        assert_eq!(msg.images[0].url, Some("http://img.jpg".to_string()));
+        assert_eq!(msg.images[0].width, Some(100));
+        assert_eq!(msg.images[0].height, Some(200));
+    }
+
+    #[test]
+    fn parse_message_with_quoted() {
+        let wire = WireMessage {
+            from_user_id: "user123".to_string(),
+            to_user_id: "bot456".to_string(),
+            client_id: "c1".to_string(),
+            create_time_ms: 1700000000000,
+            message_type: MessageType::User,
+            message_state: MessageState::Finish,
+            context_token: "ctx".to_string(),
+            item_list: vec![WireMessageItem {
+                item_type: MessageItemType::Text,
+                text_item: Some(TextItem { text: "replying".to_string() }),
+                image_item: None, voice_item: None, file_item: None, video_item: None,
+                ref_msg: Some(RefMessage {
+                    title: Some("Original".to_string()),
+                    message_item: Some(Box::new(WireMessageItem {
+                        item_type: MessageItemType::Text,
+                        text_item: Some(TextItem { text: "original text".to_string() }),
+                        image_item: None, voice_item: None, file_item: None, video_item: None, ref_msg: None,
+                    })),
+                }),
+            }],
+        };
+        let msg = parse_message(&wire).unwrap();
+        let quoted = msg.quoted.as_ref().unwrap();
+        assert_eq!(quoted.title, Some("Original".to_string()));
+        assert_eq!(quoted.text, Some("original text".to_string()));
+    }
+
+    #[test]
+    fn default_cred_path_not_empty() {
+        let path = default_cred_path();
+        assert!(!path.is_empty());
+        assert!(path.contains(".wechatbot"));
+        assert!(path.contains("credentials.json"));
+    }
+}

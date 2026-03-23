@@ -40,3 +40,54 @@ impl WeChatBotError {
 }
 
 pub type Result<T> = std::result::Result<T, WeChatBotError>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_expired_true() {
+        let err = WeChatBotError::Api {
+            message: "session expired".to_string(),
+            http_status: 200,
+            errcode: -14,
+        };
+        assert!(err.is_session_expired());
+    }
+
+    #[test]
+    fn session_expired_false() {
+        let err = WeChatBotError::Api {
+            message: "other error".to_string(),
+            http_status: 400,
+            errcode: -1,
+        };
+        assert!(!err.is_session_expired());
+    }
+
+    #[test]
+    fn non_api_not_session_expired() {
+        let err = WeChatBotError::Auth("test".to_string());
+        assert!(!err.is_session_expired());
+    }
+
+    #[test]
+    fn error_display() {
+        let err = WeChatBotError::Api {
+            message: "bad request".to_string(),
+            http_status: 400,
+            errcode: -1,
+        };
+        let msg = format!("{}", err);
+        assert!(msg.contains("bad request"));
+        assert!(msg.contains("400"));
+        assert!(msg.contains("-1"));
+    }
+
+    #[test]
+    fn no_context_error() {
+        let err = WeChatBotError::NoContext("user123".to_string());
+        let msg = format!("{}", err);
+        assert!(msg.contains("user123"));
+    }
+}
