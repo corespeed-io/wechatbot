@@ -26,43 +26,6 @@
 | [Go](golang/) | `go get github.com/corespeed-io/wechatbot/golang` | ✅ 生产就绪 |
 | [Rust](rust/) | `cargo add wechatbot` | ✅ 生产就绪 |
 
-## 🔧 一键安装（预编译二进制）
-
-无需编译环境，直接下载运行。支持 **Windows / macOS / Linux**。
-
-**macOS / Linux:**
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/corespeed-io/wechatbot/main/install.sh | bash
-```
-
-**Windows (PowerShell):**
-
-```powershell
-irm https://raw.githubusercontent.com/corespeed-io/wechatbot/main/install.ps1 | iex
-```
-
-**指定版本:**
-
-```bash
-# macOS / Linux
-curl -fsSL https://raw.githubusercontent.com/corespeed-io/wechatbot/main/install.sh | bash -s -- --version v0.1.0
-
-# Windows
-install.ps1 -Version v0.1.0
-```
-
-也可以直接从 [GitHub Releases](https://github.com/corespeed-io/wechatbot/releases) 下载。
-
-| 平台 | Go 二进制 | Rust 二进制 |
-|------|----------|------------|
-| Windows x64 | ✅ `windows-amd64.exe` | ✅ `rust-windows-amd64.exe` |
-| Windows ARM64 | ✅ `windows-arm64.exe` | 🔜 |
-| macOS x64 | ✅ `darwin-amd64` | ✅ `rust-darwin-amd64` |
-| macOS ARM64 | ✅ `darwin-arm64` | ✅ `rust-darwin-arm64` |
-| Linux x64 | ✅ `linux-amd64` | ✅ `rust-linux-amd64` |
-| Linux ARM64 | ✅ `linux-arm64` | ✅ `rust-linux-arm64` |
-
 ## ⚡ 快速开始
 
 ### Node.js
@@ -99,20 +62,6 @@ bot.on_message(Box::new(|msg| {
 })).await;
 bot.run().await?;
 ```
-
-## 🤖 Pi Agent 扩展
-
-在微信中直接与 [Pi 编程助手](https://github.com/badlogic/pi-mono) 对话 — 扫码即连。
-
-```bash
-# 安装扩展（推荐）
-pi install npm:@wechatbot/pi-agent
-
-# 在 Pi 中执行：
-/wechat          # 显示二维码 → 微信扫码 → 连接成功！
-```
-
-详见 [pi-agent/README.md](pi-agent/README.md)。
 
 ## ✨ 核心功能
 
@@ -171,6 +120,27 @@ graph TD
 ## 🌐 网站
 
 双语文档网站已移至独立仓库：[jiweiyuan/wechatbot-landing](https://github.com/jiweiyuan/wechatbot-landing)
+
+## 🤖 Pi Agent 扩展
+
+在微信中直接与 [Pi 编程助手](https://github.com/badlogic/pi-mono) 对话 — 扫码即连。详见 [pi-agent/README.md](pi-agent/README.md)。
+
+```bash
+pi install npm:@wechatbot/pi-agent
+/wechat          # 显示二维码 → 微信扫码 → 连接成功！
+```
+
+## 🔧 预编译 Echo Bot
+
+不想写代码？可以直接下载预编译的 Echo Bot 体验。详见 [GitHub Releases](https://github.com/corespeed-io/wechatbot/releases)。
+
+```bash
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/corespeed-io/wechatbot/main/install.sh | bash
+
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/corespeed-io/wechatbot/main/install.ps1 | iex
+```
 
 ## 📁 项目结构
 

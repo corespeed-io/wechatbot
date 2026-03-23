@@ -127,27 +127,42 @@ Key behaviors:
   const startWechat = async (args: string | undefined, ctx: any) => {
     if (connected && bot) {
       const action = await ctx.ui.select('WeChat is connected', [
-        'Disconnect', 'Status', 'Cancel',
+        'Reconnect', 'Disconnect', 'Status', 'Cancel',
       ])
-      if (action === 'Disconnect') {
+      if (action === 'Reconnect') {
+        ctx.ui.setStatus('wechat', '🔄 Reconnecting…')
+        bot.stop()
+        connected = false
+        activeUserId = null
+        pendingReply = null
+        bot = null
+        // Fall through to login flow below
+      } else if (action === 'Disconnect') {
         bot.stop(); connected = false
+        activeUserId = null
+        pendingReply = null
         ctx.ui.setStatus('wechat', undefined)
         ctx.ui.notify('WeChat disconnected', 'info')
+        bot = null
+        return
       } else if (action === 'Status') {
         const creds = bot.getCredentials()
         ctx.ui.notify(`Account: ${creds?.accountId}\nUser: ${creds?.userId}`, 'info')
+        return
+      } else {
+        return
       }
-      return
     }
 
+    // Always force login — ensures this pi instance takes over the session,
+    // kicking out any other pi/bot instance using the same WeChat account.
     bot = new WeChatBot({ storage: 'file', logLevel: 'warn' })
-    const forceLogin = args?.trim() === '--force'
 
     ctx.ui.setStatus('wechat', '⏳ Waiting for QR scan…')
 
     try {
       const creds = await bot.login({
-        force: forceLogin,
+        force: true,
         callbacks: {
           onQrUrl: (url) => {
             qrTerminal.generate(url, { small: true }, (qr: string) => {
