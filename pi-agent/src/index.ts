@@ -200,11 +200,6 @@ export default function wechatBridge(pi: ExtensionAPI) {
     handler: startWechat,
   })
 
-  pi.registerCommand('weixin', {
-    description: 'Connect WeChat (alias for /wechat)',
-    handler: startWechat,
-  })
-
   pi.registerCommand('wechat-send', {
     description: 'Send text to WeChat user manually',
     handler: async (args: string, ctx: any) => {
