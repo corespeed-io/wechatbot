@@ -58,6 +58,18 @@ All SDKs implement the same flow:
 4. On `-14` error → clear state, re-login
 5. On network error → exponential backoff (1s → 10s max)
 
+### Media Pipeline
+All SDKs support encrypted media upload and download via the WeChat CDN:
+1. **Upload**: generate AES key → encrypt (AES-128-ECB) → getuploadurl → POST to CDN → get download param
+2. **Download**: GET from CDN → decrypt (AES-128-ECB) with key from message
+
+The Node.js SDK additionally provides:
+- **Unified `reply(msg, content)` / `send(userId, content)`** — one method handles text, image, video, file, and URL
+- **Auto-routing by MIME** — `{ file: data, fileName: 'photo.png' }` routes as image; `.mp4` as video; others as file attachment
+- **Remote URL support** — `{ url: 'https://...' }` auto-downloads and sends
+- **Voice transcode** — SILK → WAV via optional `silk-wasm` dependency
+- **Markdown stripping** — `stripMarkdown()` for cleaning AI model output before sending to WeChat
+
 ### Text Chunking
 All SDKs split text at 2000 characters:
 - Priority: paragraph break (`\n\n`) → line break (`\n`) → space → hard cut
@@ -69,18 +81,19 @@ All SDKs split text at 2000 characters:
 ### Node.js
 ```
 nodejs/
-├── src/                    # 42 source files across 10 modules
-│   ├── core/               # Client, events, errors
+├── src/
+│   ├── core/               # Client (unified reply/send/download), events, errors
 │   ├── transport/          # HTTP with retry
 │   ├── protocol/           # Wire types + API calls
 │   ├── auth/               # QR login
 │   ├── messaging/          # Poller, sender, typing, context
-│   ├── media/              # AES crypto, CDN up/down
+│   ├── media/              # AES crypto, CDN up/down, MIME, voice transcode,
+│   │                       #   remote URL download, markdown stripping
 │   ├── middleware/          # Engine + 4 builtins
 │   ├── message/            # Parser, builder, types
 │   ├── storage/            # File, memory, interface
 │   └── logger/             # Structured logging
-├── tests/                  # 41 unit tests
+├── tests/                  # 69 unit tests
 └── examples/               # 3 example bots
 ```
 

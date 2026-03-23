@@ -3,12 +3,21 @@ import { NoContextError } from './errors.js'
 
 import { Authenticator, type Credentials, type QrLoginCallbacks } from '../auth/index.js'
 import { createLogger, type Logger, type LogLevel } from '../logger/index.js'
-import { MediaDownloader, MediaUploader, type UploadOptions, type UploadResult } from '../media/index.js'
+import {
+  MediaDownloader,
+  MediaUploader,
+  type UploadOptions,
+  type UploadResult,
+  categorizeByMime,
+  getMimeFromFilename,
+  downloadFromUrl,
+  silkToWav,
+} from '../media/index.js'
 import { MessageBuilder, MessageParser, type IncomingMessage } from '../message/index.js'
 import { MiddlewareEngine, type Middleware } from '../middleware/index.js'
 import { ContextStore, MessagePoller, MessageSender, TypingService } from '../messaging/index.js'
 import { ILinkApi } from '../protocol/api.js'
-import { DEFAULT_BASE_URL, type CDNMedia, type MediaType, type WireMessageItem } from '../protocol/types.js'
+import { DEFAULT_BASE_URL, MediaType, type CDNMedia } from '../protocol/types.js'
 import { FileStorage, MemoryStorage, type Storage } from '../storage/index.js'
 import { HttpClient } from '../transport/http.js'
 
@@ -32,47 +41,84 @@ export interface WeChatBotOptions {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Send options — unified type for all send/reply methods
+// ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * What to send. Exactly one of text/image/file/video/url must be provided.
+ *
+ * @example
+ *   // Text
+ *   await bot.reply(msg, { text: 'Hello!' })
+ *
+ *   // Image with caption
+ *   await bot.reply(msg, { image: imgBuffer, caption: 'Here you go' })
+ *
+ *   // File
+ *   await bot.reply(msg, { file: pdfBuffer, fileName: 'report.pdf' })
+ *
+ *   // Video
+ *   await bot.reply(msg, { video: videoBuffer, caption: 'Check this out' })
+ *
+ *   // Auto-detect type from filename
+ *   await bot.reply(msg, { file: data, fileName: 'photo.png' })  // → sent as image
+ *
+ *   // Remote URL (auto-download + auto-detect type)
+ *   await bot.reply(msg, { url: 'https://example.com/photo.jpg' })
+ */
+export type SendContent =
+  | string
+  | { text: string }
+  | { image: Buffer; caption?: string }
+  | { video: Buffer; caption?: string }
+  | { file: Buffer; fileName: string; caption?: string }
+  | { url: string; fileName?: string; caption?: string }
+
+// ═══════════════════════════════════════════════════════════════════════
+// Download result
+// ═══════════════════════════════════════════════════════════════════════
+
+export interface DownloadedMedia {
+  data: Buffer
+  type: 'image' | 'file' | 'video' | 'voice'
+  fileName?: string
+  /** Voice format after transcoding: 'wav' or 'silk' */
+  format?: string
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Main Client
 // ═══════════════════════════════════════════════════════════════════════
 
 /**
  * WeChatBot — the main entry point.
  *
- * Architecture:
- *   ┌─────────────────────────────────────────────────┐
- *   │                   WeChatBot                      │
- *   │                                                 │
- *   │  ┌──────────┐  ┌──────────┐  ┌──────────────┐  │
- *   │  │  Poller   │  │  Sender  │  │   Typing     │  │
- *   │  │ (receive) │  │  (send)  │  │  (indicator) │  │
- *   │  └────┬─────┘  └─────┬────┘  └──────┬───────┘  │
- *   │       │              │               │          │
- *   │  ┌────┴──────────────┴───────────────┴──────┐   │
- *   │  │            Context Store                  │   │
- *   │  │        (context_token cache)              │   │
- *   │  └──────────────────┬───────────────────────┘   │
- *   │                     │                           │
- *   │  ┌──────────────────┴───────────────────────┐   │
- *   │  │            iLink API                      │   │
- *   │  │         (protocol layer)                  │   │
- *   │  └──────────────────┬───────────────────────┘   │
- *   │                     │                           │
- *   │  ┌──────────────────┴───────────────────────┐   │
- *   │  │           HTTP Client                     │   │
- *   │  │      (transport + retry)                  │   │
- *   │  └─────────────────────────────────────────┘   │
- *   └─────────────────────────────────────────────────┘
+ * ## Quick Start
  *
- * Usage:
- *   const bot = new WeChatBot({ storage: 'file' })
- *   await bot.login()
+ * ```typescript
+ * const bot = new WeChatBot()
+ * await bot.login()
  *
- *   bot.use(loggingMiddleware(bot.logger))
- *   bot.onMessage(async (msg) => {
- *     await bot.reply(msg, `Echo: ${msg.text}`)
- *   })
+ * bot.onMessage(async (msg) => {
+ *   // Simple text reply
+ *   await bot.reply(msg, 'Echo: ' + msg.text)
  *
- *   await bot.start()
+ *   // Image reply
+ *   await bot.reply(msg, { image: imgBuffer, caption: 'Here!' })
+ *
+ *   // File reply (auto-routes: .png → image, .mp4 → video, .pdf → file)
+ *   await bot.reply(msg, { file: data, fileName: 'report.pdf' })
+ *
+ *   // Send from URL
+ *   await bot.reply(msg, { url: 'https://example.com/photo.jpg' })
+ *
+ *   // Download media from incoming message
+ *   const media = await bot.download(msg)
+ *   if (media) console.log(media.type, media.data.length)
+ * })
+ *
+ * await bot.start()
+ * ```
  */
 export class WeChatBot extends TypedEmitter<BotEventMap> {
   // ── Public components (accessible for advanced use) ─────────────────
@@ -190,54 +236,148 @@ export class WeChatBot extends TypedEmitter<BotEventMap> {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // Sending
+  // Sending — two methods: reply() and send()
   // ═══════════════════════════════════════════════════════════════════
 
   /**
-   * Reply to an incoming message with text.
+   * Reply to an incoming message.
    * Automatically uses the correct context_token and cancels typing.
+   *
+   * @example
+   *   // Text
+   *   await bot.reply(msg, 'Hello!')
+   *   await bot.reply(msg, { text: 'Hello!' })
+   *
+   *   // Image with optional caption
+   *   await bot.reply(msg, { image: pngBuffer, caption: 'Screenshot' })
+   *
+   *   // File (auto-routes by extension: .png → image, .mp4 → video, else → file)
+   *   await bot.reply(msg, { file: data, fileName: 'report.pdf' })
+   *   await bot.reply(msg, { file: data, fileName: 'photo.png' })  // sent as image
+   *
+   *   // Video
+   *   await bot.reply(msg, { video: mp4Buffer })
+   *
+   *   // From URL (auto-download, auto-detect type)
+   *   await bot.reply(msg, { url: 'https://example.com/image.jpg' })
    */
-  async reply(message: IncomingMessage, text: string): Promise<void> {
+  async reply(message: IncomingMessage, content: SendContent): Promise<void> {
     const creds = this.requireCredentials()
     this.contextStore.set(message.userId, message._contextToken)
-    await this.sender.sendText(creds.baseUrl, creds.token, message.userId, text, message._contextToken)
-    // Auto-cancel typing
+
+    await this.sendContent(
+      message.userId,
+      message._contextToken,
+      content,
+    )
+
     this.typing.stopTyping(creds.baseUrl, creds.token, message.userId).catch(() => {})
   }
 
   /**
-   * Send text to a user (requires a prior context_token from that user).
+   * Send content to a user by ID.
+   * Requires a prior context_token from that user (i.e., they messaged you first).
+   *
+   * Same content options as reply().
+   *
+   * @example
+   *   await bot.send(userId, 'Hello!')
+   *   await bot.send(userId, { image: buffer })
+   *   await bot.send(userId, { file: data, fileName: 'doc.pdf' })
+   *   await bot.send(userId, { url: 'https://example.com/img.png' })
    */
-  async send(userId: string, text: string): Promise<void> {
-    const creds = this.requireCredentials()
-    await this.sender.sendText(creds.baseUrl, creds.token, userId, text)
+  async send(userId: string, content: SendContent): Promise<void> {
+    const ctx = this.contextStore.get(userId)
+    if (!ctx) throw new NoContextError(userId)
+    await this.sendContent(userId, ctx, content)
   }
 
   /**
-   * Send a pre-built message (for advanced use with MessageBuilder).
+   * Send a pre-built message payload (advanced use with MessageBuilder).
    */
-  async sendMessage(payload: ReturnType<MessageBuilder['build']>): Promise<void> {
+  async sendRaw(payload: ReturnType<MessageBuilder['build']>): Promise<void> {
     const creds = this.requireCredentials()
     await this.sender.sendRaw(creds.baseUrl, creds.token, payload)
   }
 
+  // ═══════════════════════════════════════════════════════════════════
+  // Downloading — one method: download()
+  // ═══════════════════════════════════════════════════════════════════
+
   /**
-   * Upload a file and send it as a media message.
+   * Download media from an incoming message.
+   *
+   * Detects and downloads the first media item found.
+   * Priority: image > file > video > voice.
+   * Voice is auto-transcoded from SILK to WAV (if silk-wasm is installed).
+   *
+   * Returns null if the message has no media.
+   *
+   * @example
+   *   bot.onMessage(async (msg) => {
+   *     const media = await bot.download(msg)
+   *     if (media) {
+   *       console.log(media.type)     // 'image' | 'file' | 'video' | 'voice'
+   *       console.log(media.data)     // Buffer
+   *       console.log(media.fileName) // 'report.pdf' (for files)
+   *       console.log(media.format)   // 'wav' | 'silk' (for voice)
+   *     }
+   *   })
    */
-  async sendMedia(
-    userId: string,
-    options: UploadOptions & { contextToken?: string },
-  ): Promise<UploadResult> {
-    const creds = this.requireCredentials()
-    const result = await this.uploader.upload(creds.baseUrl, creds.token, options)
-    return result
+  async download(message: IncomingMessage): Promise<DownloadedMedia | null> {
+    // Image
+    const img = message.images[0]
+    if (img?.media) {
+      const data = await this.downloader.download(img.media, img.aeskey)
+      return { data, type: 'image' }
+    }
+
+    // File
+    const file = message.files[0]
+    if (file?.media) {
+      const data = await this.downloader.download(file.media)
+      return { data, type: 'file', fileName: file.fileName ?? 'file.bin' }
+    }
+
+    // Video
+    const video = message.videos[0]
+    if (video?.media) {
+      const data = await this.downloader.download(video.media)
+      return { data, type: 'video' }
+    }
+
+    // Voice (auto-transcode)
+    const voice = message.voices[0]
+    if (voice?.media) {
+      const silkBuf = await this.downloader.download(voice.media)
+      const wav = await silkToWav(silkBuf, this.logger)
+      if (wav) return { data: wav, type: 'voice', format: 'wav' }
+      return { data: silkBuf, type: 'voice', format: 'silk' }
+    }
+
+    return null
   }
 
   /**
-   * Download and decrypt a media file from a message.
+   * Download and decrypt a media file from a raw CDN reference.
+   * For advanced use when you need direct access to CDNMedia objects.
    */
-  async downloadMedia(media: CDNMedia, aeskeyOverride?: string): Promise<Buffer> {
+  async downloadRaw(media: CDNMedia, aeskeyOverride?: string): Promise<Buffer> {
     return this.downloader.download(media, aeskeyOverride)
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Upload (advanced)
+  // ═══════════════════════════════════════════════════════════════════
+
+  /**
+   * Upload a file to WeChat CDN and return the CDN reference.
+   * Does NOT send a message — use reply()/send() for the full pipeline.
+   * For advanced use when you need to compose complex messages via MessageBuilder.
+   */
+  async upload(options: UploadOptions): Promise<UploadResult> {
+    const creds = this.requireCredentials()
+    return this.uploader.upload(creds.baseUrl, creds.token, options)
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -318,6 +458,115 @@ export class WeChatBot extends TypedEmitter<BotEventMap> {
     const ctx = this.contextStore.get(userId)
     if (!ctx) throw new NoContextError(userId)
     return MessageBuilder.to(userId, ctx)
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Internal: unified send pipeline
+  // ═══════════════════════════════════════════════════════════════════
+
+  /**
+   * Core send implementation. All public send methods route through here.
+   */
+  private async sendContent(
+    userId: string,
+    contextToken: string,
+    content: SendContent,
+  ): Promise<void> {
+    const creds = this.requireCredentials()
+
+    // String shorthand → text
+    if (typeof content === 'string') {
+      await this.sender.sendText(creds.baseUrl, creds.token, userId, content, contextToken)
+      return
+    }
+
+    // { text }
+    if ('text' in content) {
+      await this.sender.sendText(creds.baseUrl, creds.token, userId, content.text, contextToken)
+      return
+    }
+
+    // { url } → download then re-route
+    if ('url' in content) {
+      const result = await downloadFromUrl(content.url, { logger: this.logger })
+      const fileName = content.fileName ?? result.filename
+      return this.sendContent(userId, contextToken, {
+        file: result.data,
+        fileName,
+        caption: content.caption,
+      })
+    }
+
+    // { image }
+    if ('image' in content) {
+      await this.sendMediaBuffer(creds, userId, contextToken, content.image, MediaType.IMAGE, (builder, result) => {
+        builder.image({ media: result.media, midSize: result.encryptedFileSize })
+      }, content.caption)
+      return
+    }
+
+    // { video }
+    if ('video' in content) {
+      await this.sendMediaBuffer(creds, userId, contextToken, content.video, MediaType.VIDEO, (builder, result) => {
+        builder.video({ media: result.media, videoSize: result.encryptedFileSize })
+      }, content.caption)
+      return
+    }
+
+    // { file, fileName } — auto-route by extension
+    if ('file' in content) {
+      const mime = getMimeFromFilename(content.fileName)
+      const category = categorizeByMime(mime)
+
+      if (category === 'image') {
+        return this.sendContent(userId, contextToken, {
+          image: content.file,
+          caption: content.caption,
+        })
+      }
+
+      if (category === 'video') {
+        return this.sendContent(userId, contextToken, {
+          video: content.file,
+          caption: content.caption,
+        })
+      }
+
+      // Generic file
+      if (content.caption) {
+        await this.sender.sendText(creds.baseUrl, creds.token, userId, content.caption, contextToken)
+      }
+      await this.sendMediaBuffer(creds, userId, contextToken, content.file, MediaType.FILE, (builder, result) => {
+        builder.file({ media: result.media, fileName: content.fileName, size: content.file.length })
+      })
+      return
+    }
+  }
+
+  /**
+   * Upload buffer to CDN and send as a message item.
+   */
+  private async sendMediaBuffer(
+    creds: Credentials,
+    userId: string,
+    contextToken: string,
+    data: Buffer,
+    mediaType: MediaType,
+    buildItem: (builder: MessageBuilder, result: UploadResult) => void,
+    caption?: string,
+  ): Promise<void> {
+    const result = await this.uploader.upload(creds.baseUrl, creds.token, {
+      data,
+      userId,
+      mediaType,
+    })
+
+    const builder = MessageBuilder.to(userId, contextToken)
+    if (caption) builder.text(caption)
+    buildItem(builder, result)
+    await this.sender.sendRaw(creds.baseUrl, creds.token, builder.build())
+
+    this.logger.info('Sent media', { userId, mediaType, size: data.length })
   }
 
   // ═══════════════════════════════════════════════════════════════════
