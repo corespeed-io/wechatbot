@@ -24,7 +24,7 @@
 | [Node.js](nodejs/) | `npm install @wechatbot/wechatbot` | ✅ 生产就绪 |
 | [Python](python/) | `pip install wechatbot-sdk` | ✅ 生产就绪 |
 | [Go](golang/) | `go get github.com/corespeed-io/wechatbot-go` | ✅ 生产就绪 |
-| [Rust](rust/) | `wechatbot = "0.1"` | ✅ 生产就绪 |
+| [Rust](rust/) | `cargo add wechatbot` | ✅ 生产就绪 |
 
 ## ⚡ 快速开始
 
