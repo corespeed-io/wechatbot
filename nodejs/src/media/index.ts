@@ -9,3 +9,13 @@ export {
   encryptedSize,
   generateAesKey,
 } from './crypto.js'
+export {
+  categorizeByMime,
+  getExtensionFromContentTypeOrUrl,
+  getExtensionFromMime,
+  getMimeFromFilename,
+  type MediaCategory,
+} from './mime.js'
+export { silkToWav, SILK_SAMPLE_RATE } from './voice.js'
+export { downloadFromUrl, type RemoteDownloadResult } from './remote.js'
+export { stripMarkdown } from './markdown.js'

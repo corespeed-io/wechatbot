@@ -1,16 +1,15 @@
 #!/usr/bin/env npx tsx
 /**
- * Media Bot — demonstrates image/file download and upload
+ * Media Bot — demonstrates the unified download/reply API
  *
  * Shows how to:
- *   - Download images from incoming messages
- *   - Upload files to users
- *   - Use the MessageBuilder for complex messages
+ *   - Download any media with bot.download(msg)
+ *   - Reply with text, images, files via bot.reply(msg, content)
  *   - Handle different media types
  */
 
-import { writeFile, readFile } from 'node:fs/promises'
-import { WeChatBot, MessageBuilder, MediaType } from '../src/index.js'
+import { writeFile } from 'node:fs/promises'
+import { WeChatBot } from '../src/index.js'
 
 const bot = new WeChatBot({ storage: 'file', logLevel: 'info' })
 await bot.login({
@@ -23,62 +22,50 @@ bot.onMessage(async (msg) => {
   console.log(`[${msg.type}] from ${msg.userId}: ${msg.text}`)
 
   switch (msg.type) {
-    case 'image': {
-      // Download the image
-      if (msg.images.length > 0 && msg.images[0]!.media) {
-        await bot.sendTyping(msg.userId)
-        try {
-          const imageData = await bot.downloadMedia(
-            msg.images[0]!.media,
-            msg.images[0]!.aeskey,
-          )
-          // Save locally
-          const filename = `/tmp/wechat-image-${Date.now()}.jpg`
-          await writeFile(filename, imageData)
-          await bot.reply(msg, `✓ Downloaded image (${imageData.length} bytes) → ${filename}`)
-        } catch (err) {
-          await bot.reply(msg, `✗ Failed to download: ${err instanceof Error ? err.message : String(err)}`)
+    case 'image':
+    case 'file':
+    case 'video': {
+      // Unified download — handles any media type
+      await bot.sendTyping(msg.userId)
+      try {
+        const media = await bot.download(msg)
+        if (!media) {
+          await bot.reply(msg, 'Received media but no downloadable reference found.')
+          break
         }
-      } else {
-        await bot.reply(msg, 'Received image but no media reference found.')
-      }
-      break
-    }
 
-    case 'file': {
-      if (msg.files.length > 0 && msg.files[0]!.media) {
-        await bot.sendTyping(msg.userId)
-        try {
-          const fileData = await bot.downloadMedia(msg.files[0]!.media)
-          const filename = `/tmp/wechat-file-${msg.files[0]!.fileName ?? Date.now()}`
-          await writeFile(filename, fileData)
-          await bot.reply(msg, `✓ Downloaded file "${msg.files[0]!.fileName}" (${fileData.length} bytes)`)
-        } catch (err) {
-          await bot.reply(msg, `✗ Failed to download: ${err instanceof Error ? err.message : String(err)}`)
-        }
+        const ext = media.type === 'image' ? '.jpg'
+          : media.type === 'video' ? '.mp4'
+          : media.fileName ? '' : '.bin'
+        const filename = `/tmp/wechat-${media.type}-${Date.now()}${media.fileName ?? ext}`
+        await writeFile(filename, media.data)
+
+        await bot.reply(msg, `✓ Downloaded ${media.type} (${media.data.length} bytes) → ${filename}`)
+      } catch (err) {
+        await bot.reply(msg, `✗ Failed to download: ${err instanceof Error ? err.message : String(err)}`)
       }
       break
     }
 
     case 'voice': {
       const voice = msg.voices[0]
-      const transcription = voice?.text
-      if (transcription) {
-        await bot.reply(msg, `🎤 You said: "${transcription}" (${voice?.durationMs ?? 0}ms)`)
+      if (voice?.text) {
+        await bot.reply(msg, `🎤 You said: "${voice.text}" (${voice.durationMs ?? 0}ms)`)
       } else {
-        await bot.reply(msg, `🎤 Received voice message (${voice?.durationMs ?? 0}ms, no transcription)`)
+        // Download and transcode SILK → WAV
+        const media = await bot.download(msg)
+        if (media) {
+          await bot.reply(msg, `🎤 Voice downloaded (${media.format}, ${media.data.length} bytes, no transcription)`)
+        } else {
+          await bot.reply(msg, `🎤 Received voice message (no transcription)`)
+        }
       }
-      break
-    }
-
-    case 'video': {
-      await bot.reply(msg, `🎬 Received video (${msg.videos[0]?.durationMs ?? 0}ms)`)
       break
     }
 
     case 'text': {
       if (msg.text === '/upload') {
-        await bot.reply(msg, 'Upload feature: use bot.sendMedia() to upload files programmatically.')
+        await bot.reply(msg, 'Upload feature: use bot.reply(msg, { file: data, fileName: "doc.pdf" })')
       } else if (msg.quotedMessage) {
         await bot.reply(msg, `You quoted: "${msg.quotedMessage.title ?? msg.quotedMessage.text ?? '(unknown)'}"`)
       } else {

@@ -20,7 +20,7 @@
 // ═══════════════════════════════════════════════════════════════════════
 
 // ── Core ────────────────────────────────────────────────────────────────
-export { WeChatBot, type WeChatBotOptions } from './core/client.js'
+export { WeChatBot, type WeChatBotOptions, type SendContent, type DownloadedMedia } from './core/client.js'
 export { TypedEmitter, type BotEventMap } from './core/events.js'
 export {
   ApiError,
@@ -59,6 +59,16 @@ export type { MessageContext, Middleware, NextFunction } from './middleware/type
 // ── Media ───────────────────────────────────────────────────────────────
 export { MediaDownloader, MediaUploader } from './media/index.js'
 export type { UploadOptions, UploadResult } from './media/uploader.js'
+export {
+  categorizeByMime,
+  getExtensionFromContentTypeOrUrl,
+  getExtensionFromMime,
+  getMimeFromFilename,
+  type MediaCategory,
+} from './media/mime.js'
+export { silkToWav, SILK_SAMPLE_RATE } from './media/voice.js'
+export { downloadFromUrl, type RemoteDownloadResult } from './media/remote.js'
+export { stripMarkdown } from './media/markdown.js'
 
 // ── Storage ─────────────────────────────────────────────────────────────
 export { FileStorage, MemoryStorage } from './storage/index.js'

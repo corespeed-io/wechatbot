@@ -59,7 +59,7 @@ const bot = new WeChatBot({
 
 ## API Reference
 
-### Core
+### Lifecycle
 
 | Method | Description |
 |---|---|
@@ -70,23 +70,55 @@ const bot = new WeChatBot({
 | `bot.stop()` | Stop gracefully |
 | `bot.isRunning` | Whether the poll loop is active |
 
-### Messaging
+### Receiving
 
 | Method | Description |
 |---|---|
 | `bot.onMessage(handler)` | Register message handler |
-| `bot.reply(msg, text)` | Reply to message (auto context_token) |
-| `bot.send(userId, text)` | Send to user (needs prior context) |
-| `bot.sendMessage(payload)` | Send pre-built message |
-| `bot.sendTyping(userId)` | Show "typing..." indicator |
-| `bot.stopTyping(userId)` | Cancel typing indicator |
+| `bot.download(msg)` | Download any media from a message (image/file/video/voice) |
 
-### Media
+### Sending — `reply(msg, content)` / `send(userId, content)`
+
+Both methods accept the same content types:
+
+```typescript
+// Text (string shorthand)
+await bot.reply(msg, 'Hello!')
+
+// Text (object)
+await bot.reply(msg, { text: 'Hello!' })
+
+// Image with optional caption
+await bot.reply(msg, { image: pngBuffer, caption: 'Screenshot' })
+
+// Video with optional caption
+await bot.reply(msg, { video: mp4Buffer, caption: 'Check this out' })
+
+// File — auto-routes by extension (.png → image, .mp4 → video, else → file)
+await bot.reply(msg, { file: data, fileName: 'report.pdf' })
+await bot.reply(msg, { file: data, fileName: 'photo.png' })   // → sent as image
+
+// From URL — auto-download + auto-detect type
+await bot.reply(msg, { url: 'https://example.com/photo.jpg' })
+
+// Send to a user by ID (same content options)
+await bot.send(userId, { image: buffer, caption: 'Hi!' })
+```
+
+### Typing
 
 | Method | Description |
 |---|---|
-| `bot.downloadMedia(media, aeskey?)` | Download + decrypt from CDN |
-| `bot.sendMedia(userId, options)` | Encrypt + upload + send |
+| `bot.sendTyping(userId)` | Show "typing..." indicator |
+| `bot.stopTyping(userId)` | Cancel typing indicator |
+
+### Advanced
+
+| Method | Description |
+|---|---|
+| `bot.sendRaw(payload)` | Send pre-built MessageBuilder payload |
+| `bot.upload(options)` | Upload to CDN without sending |
+| `bot.downloadRaw(media, aeskey?)` | Download from raw CDN reference |
 | `bot.createMessage(userId)` | Fluent MessageBuilder |
 
 ### Middleware
@@ -151,7 +183,7 @@ interface Storage {
 ```bash
 npm install
 npm run build    # TypeScript → dist/
-npm test         # 41 unit tests
+npm test         # 69 unit tests
 npm run lint     # Type check
 ```
 
