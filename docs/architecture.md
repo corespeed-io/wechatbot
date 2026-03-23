@@ -25,7 +25,7 @@ graph TD
 
 | Feature | Node.js | Go | Rust |
 |---|---|---|---|
-| Package | `@wechatbot/wechatbot` | `github.com/corespeed-io/wechatbot-go` | `wechatbot` (crates.io) |
+| Package | `@wechatbot/wechatbot` | `github.com/corespeed-io/wechatbot/golang` | `wechatbot` (crates.io) |
 | Async model | `async/await` (Promises) | goroutines + `context.Context` | `async/await` (tokio) |
 | Middleware | ✓ Express-style pipeline | — (use handler composition) | — (use closures) |
 | Storage | Pluggable (file/memory/custom) | File-based | File-based |

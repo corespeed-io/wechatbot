@@ -8,7 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	wechatbot "github.com/corespeed-io/wechatbot-go"
+	wechatbot "github.com/corespeed-io/wechatbot/golang"
 )
 
 func main() {

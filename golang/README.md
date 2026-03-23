@@ -5,7 +5,7 @@ WeChat iLink Bot SDK for Go — simple, concurrent, production-ready.
 ## Install
 
 ```bash
-go get github.com/corespeed-io/wechatbot-go
+go get github.com/corespeed-io/wechatbot/golang
 ```
 
 Requires Go 1.22+. Zero CGO dependencies.
@@ -18,7 +18,7 @@ package main
 import (
     "context"
     "fmt"
-    wechatbot "github.com/corespeed-io/wechatbot-go"
+    wechatbot "github.com/corespeed-io/wechatbot/golang"
 )
 
 func main() {

@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/corespeed-io/wechatbot-go/internal/auth"
-	"github.com/corespeed-io/wechatbot-go/internal/protocol"
+	"github.com/corespeed-io/wechatbot/golang/internal/auth"
+	"github.com/corespeed-io/wechatbot/golang/internal/protocol"
 )
 
 // MessageHandler is called for each incoming user message.

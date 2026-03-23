@@ -23,7 +23,7 @@ Connect any agent to WeChat in 5 minutes. Inspired by [openclaw-weixin-cli](http
 |-----|---------|--------|
 | [Node.js](nodejs/) | `npm install @wechatbot/wechatbot` | ✅ Production Ready |
 | [Python](python/) | `pip install wechatbot-sdk` | ✅ Production Ready |
-| [Go](golang/) | `go get github.com/corespeed-io/wechatbot-go` | ✅ Production Ready |
+| [Go](golang/) | `go get github.com/corespeed-io/wechatbot/golang` | ✅ Production Ready |
 | [Rust](rust/) | `cargo add wechatbot` | ✅ Production Ready |
 
 ## ⚡ Quick Start
