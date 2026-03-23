@@ -1,0 +1,51 @@
+name: Publish pi-agent to npm
+
+on:
+  push:
+    tags:
+      - "pi-agent-v*" # Trigger on tags like pi-agent-v0.1.0
+
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (skip actual publish)"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: pi-agent
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Upgrade npm (OIDC requires >= 11.5.1)
+        run: npm install -g npm@latest
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Publish (dry run)
+        if: inputs.dry_run == 'true'
+        run: npm publish --dry-run --access public --provenance
+
+      - name: Publish
+        if: inputs.dry_run != 'true'
+        run: npm publish --access public --provenance

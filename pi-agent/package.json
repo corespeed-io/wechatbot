@@ -4,11 +4,22 @@
   "description": "Pi extension — type /wechat, scan QR code, chat with Pi from WeChat",
   "type": "module",
   "keywords": ["pi-package"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/corespeed-io/wechatbot.git",
+    "directory": "pi-agent"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "package.json"
+  ],
   "pi": {
     "extensions": ["./src/index.ts"]
   },
   "dependencies": {
-    "@wechatbot/wechatbot": "file:../nodejs",
+    "@wechatbot/wechatbot": "^2.0.1",
     "qrcode-terminal": "^0.12.0"
   },
   "peerDependencies": {

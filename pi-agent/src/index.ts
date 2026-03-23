@@ -200,38 +200,6 @@ export default function wechatBridge(pi: ExtensionAPI) {
     handler: startWechat,
   })
 
-  pi.registerCommand('wechat-send', {
-    description: 'Send text to WeChat user manually',
-    handler: async (args: string, ctx: any) => {
-      if (!bot || !connected || !activeUserId) {
-        ctx.ui.notify('WeChat not connected or no active user', 'error')
-        return
-      }
-      if (!args.trim()) {
-        ctx.ui.notify('Usage: /wechat-send <text>', 'warning')
-        return
-      }
-      try {
-        await bot.send(activeUserId, args)
-        ctx.ui.notify('Sent to WeChat', 'info')
-      } catch (e) {
-        ctx.ui.notify(`Send failed: ${e instanceof Error ? e.message : e}`, 'error')
-      }
-    },
-  })
-
-  pi.registerCommand('wechat-disconnect', {
-    description: 'Disconnect WeChat',
-    handler: async (_args: string, ctx: any) => {
-      if (bot) { bot.stop(); bot = null }
-      connected = false
-      activeUserId = null
-      pendingReply = null
-      ctx.ui.setStatus('wechat', undefined)
-      ctx.ui.notify('WeChat disconnected', 'info')
-    },
-  })
-
   pi.on('session_shutdown', async () => {
     if (bot) { bot.stop(); bot = null }
     connected = false
