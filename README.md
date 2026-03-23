@@ -141,8 +141,8 @@ graph TD
 wechatbot/
 ├── nodejs/                # Node.js SDK（TypeScript）
 │   ├── src/               #   11 个模块
-│   ├── tests/             #   6 个测试文件
-│   └── examples/          #   3 个示例 Bot
+│   ├── tests/             #   8 个测试文件
+│   └── examples/          #   4 个示例 Bot
 ├── python/                # Python SDK（async/aiohttp）
 │   ├── wechatbot/         #   6 个模块
 │   └── tests/             #   2 个测试文件

@@ -141,8 +141,8 @@ The bilingual documentation website has been moved to a separate repository: [ji
 wechatbot/
 ├── nodejs/                # Node.js SDK (TypeScript)
 │   ├── src/               #   11 modules
-│   ├── tests/             #   6 test files
-│   └── examples/          #   3 example bots
+│   ├── tests/             #   8 test files
+│   └── examples/          #   4 example bots
 ├── python/                # Python SDK (async/aiohttp)
 │   ├── wechatbot/         #   6 modules
 │   └── tests/             #   2 test files

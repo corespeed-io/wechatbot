@@ -8,7 +8,7 @@ WeChat iLink Bot SDK for Python — async, typed, production-grade.
 pip install wechatbot-sdk
 ```
 
-Requires Python ≥ 3.11. Dependencies: `aiohttp`, `cryptography`.
+Requires Python ≥ 3.9. Dependencies: `aiohttp`, `cryptography`.
 
 ## Quick Start
 
