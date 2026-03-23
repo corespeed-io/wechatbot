@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/anthropic/wechatbot-go/internal/auth"
-	"github.com/anthropic/wechatbot-go/internal/protocol"
+	"github.com/corespeed-io/wechatbot-go/internal/auth"
+	"github.com/corespeed-io/wechatbot-go/internal/protocol"
 )
 
 // MessageHandler is called for each incoming user message.

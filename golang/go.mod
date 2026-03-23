@@ -1,3 +1,3 @@
-module github.com/anthropic/wechatbot-go
+module github.com/corespeed-io/wechatbot-go
 
 go 1.22
