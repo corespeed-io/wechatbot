@@ -36,6 +36,9 @@ jobs:
           node-version: 22
           registry-url: "https://registry.npmjs.org"
 
+      - name: Upgrade npm (OIDC requires >= 11.5.1)
+        run: npm install -g npm@latest
+
       - name: Install dependencies
         run: npm install
 
@@ -48,11 +51,7 @@ jobs:
       - name: Publish (dry run)
         if: inputs.dry_run == 'true'
         run: npm publish --dry-run --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish
         if: inputs.dry_run != 'true'
         run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

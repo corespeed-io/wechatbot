@@ -25,6 +25,10 @@
     "dist",
     "README.md"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/corespeed-io/wechatbot.git"
+  },
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^22.0.0",
