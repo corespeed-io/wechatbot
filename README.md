@@ -26,6 +26,43 @@
 | [Go](golang/) | `go get github.com/corespeed-io/wechatbot/golang` | ✅ 生产就绪 |
 | [Rust](rust/) | `cargo add wechatbot` | ✅ 生产就绪 |
 
+## 🔧 一键安装（预编译二进制）
+
+无需编译环境，直接下载运行。支持 **Windows / macOS / Linux**。
+
+**macOS / Linux:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/corespeed-io/wechatbot/main/install.sh | bash
+```
+
+**Windows (PowerShell):**
+
+```powershell
+irm https://raw.githubusercontent.com/corespeed-io/wechatbot/main/install.ps1 | iex
+```
+
+**指定版本:**
+
+```bash
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/corespeed-io/wechatbot/main/install.sh | bash -s -- --version v0.1.0
+
+# Windows
+install.ps1 -Version v0.1.0
+```
+
+也可以直接从 [GitHub Releases](https://github.com/corespeed-io/wechatbot/releases) 下载。
+
+| 平台 | Go 二进制 | Rust 二进制 |
+|------|----------|------------|
+| Windows x64 | ✅ `windows-amd64.exe` | ✅ `rust-windows-amd64.exe` |
+| Windows ARM64 | ✅ `windows-arm64.exe` | 🔜 |
+| macOS x64 | ✅ `darwin-amd64` | ✅ `rust-darwin-amd64` |
+| macOS ARM64 | ✅ `darwin-arm64` | ✅ `rust-darwin-arm64` |
+| Linux x64 | ✅ `linux-amd64` | ✅ `rust-linux-amd64` |
+| Linux ARM64 | ✅ `linux-arm64` | ✅ `rust-linux-arm64` |
+
 ## ⚡ 快速开始
 
 ### Node.js

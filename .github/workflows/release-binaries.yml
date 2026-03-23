@@ -1,0 +1,133 @@
+name: Build & Release Binaries
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (build only, no release)'
+        required: false
+        default: 'false'
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  build-go:
+    name: Go (${{ matrix.goos }}-${{ matrix.goarch }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+          - goos: windows
+            goarch: arm64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Build
+        working-directory: golang
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          EXT=""
+          if [ "$GOOS" = "windows" ]; then EXT=".exe"; fi
+          go build -ldflags="-s -w" -o ../dist/wechatbot-echo-bot-${GOOS}-${GOARCH}${EXT} ./examples/echo-bot/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: go-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/
+
+  build-rust:
+    name: Rust (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: wechatbot-echo-bot-rust-linux-amd64
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            artifact: wechatbot-echo-bot-rust-linux-arm64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact: wechatbot-echo-bot-rust-darwin-arm64
+          - os: macos-13
+            target: x86_64-apple-darwin
+            artifact: wechatbot-echo-bot-rust-darwin-amd64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: wechatbot-echo-bot-rust-windows-amd64.exe
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install OpenSSL (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config
+
+      - name: Build
+        working-directory: rust
+        run: cargo build --release --target ${{ matrix.target }} --example echo_bot
+
+      - name: Copy artifact (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p dist
+          cp rust/target/${{ matrix.target }}/release/examples/echo_bot dist/${{ matrix.artifact }}
+
+      - name: Copy artifact (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          mkdir dist
+          copy rust\target\${{ matrix.target }}\release\examples\echo_bot.exe dist\${{ matrix.artifact }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rust-${{ matrix.target }}
+          path: dist/
+
+  release:
+    name: Create Release
+    needs: [build-go, build-rust]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') && inputs.dry_run != 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -lhR artifacts/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            artifacts/*
+            install.sh
+            install.ps1

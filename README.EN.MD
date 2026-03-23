@@ -26,6 +26,43 @@ Connect any agent to WeChat in 5 minutes. Inspired by [openclaw-weixin-cli](http
 | [Go](golang/) | `go get github.com/corespeed-io/wechatbot/golang` | ✅ Production Ready |
 | [Rust](rust/) | `cargo add wechatbot` | ✅ Production Ready |
 
+## 🔧 Quick Install (Prebuilt Binaries)
+
+No build tools needed — download and run. Supports **Windows / macOS / Linux**.
+
+**macOS / Linux:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/corespeed-io/wechatbot/main/install.sh | bash
+```
+
+**Windows (PowerShell):**
+
+```powershell
+irm https://raw.githubusercontent.com/corespeed-io/wechatbot/main/install.ps1 | iex
+```
+
+**Pin a version:**
+
+```bash
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/corespeed-io/wechatbot/main/install.sh | bash -s -- --version v0.1.0
+
+# Windows
+install.ps1 -Version v0.1.0
+```
+
+Or download directly from [GitHub Releases](https://github.com/corespeed-io/wechatbot/releases).
+
+| Platform | Go Binary | Rust Binary |
+|----------|----------|------------|
+| Windows x64 | ✅ `windows-amd64.exe` | ✅ `rust-windows-amd64.exe` |
+| Windows ARM64 | ✅ `windows-arm64.exe` | 🔜 |
+| macOS x64 | ✅ `darwin-amd64` | ✅ `rust-darwin-amd64` |
+| macOS ARM64 | ✅ `darwin-arm64` | ✅ `rust-darwin-arm64` |
+| Linux x64 | ✅ `linux-amd64` | ✅ `rust-linux-amd64` |
+| Linux ARM64 | ✅ `linux-arm64` | ✅ `rust-linux-arm64` |
+
 ## ⚡ Quick Start
 
 ### Node.js
