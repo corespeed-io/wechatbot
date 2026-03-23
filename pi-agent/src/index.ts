@@ -36,6 +36,27 @@ export default function wechatBridge(pi: ExtensionAPI) {
   let assistantText = ''
   let isStreaming = false
 
+  // ── Inject system prompt so agent knows about WeChat bridge ────────
+
+  pi.on('before_agent_start', async (event) => {
+    if (!connected || !bot || !pendingReply) return
+
+    return {
+      systemPrompt: event.systemPrompt + `\n
+## WeChat Bridge (Active)
+
+You are currently bridged to WeChat via the wechatbot extension.
+A real WeChat user is chatting with you — your response will be sent back to them.
+
+Key behaviors:
+- **No markdown**: WeChat doesn't render markdown. Write plain text. Use line breaks for structure.
+- **Send files**: To send a file (image, video, document) back to WeChat, mention its absolute path in your response (e.g. /tmp/photo.png). The bridge auto-detects paths ending in media extensions and sends them as attachments.
+- **Concise replies**: WeChat is a mobile chat app. Keep responses short and conversational.
+- **Media received**: Images arrive as vision input. Videos/voice/files are described with metadata.
+`,
+    }
+  })
+
   // ── Capture pi response → send back to WeChat ────────────────────
 
   pi.on('agent_end', async (event, ctx) => {
