@@ -78,6 +78,20 @@ bot.onMessage(async (msg) => {
 await bot.start()
 ```
 
+### Python
+
+```python
+from wechatbot import WeChatBot
+
+bot = WeChatBot()
+
+@bot.on_message
+async def handle(msg):
+    await bot.reply(msg, f"Echo: {msg.text}")
+
+bot.run()  # login + start in one call
+```
+
 ### Go
 
 ```go

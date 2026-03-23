@@ -1,6 +1,6 @@
 # Architecture
 
-All three SDKs (Node.js, Go, Rust) follow the same layered architecture and expose a consistent API surface.
+All four SDKs (Node.js, Python, Go, Rust) follow the same layered architecture and expose a consistent API surface.
 
 ## Layers
 
@@ -23,16 +23,16 @@ graph TD
 
 ## SDK Comparison
 
-| Feature | Node.js | Go | Rust |
-|---|---|---|---|
-| Package | `@wechatbot/wechatbot` | `github.com/corespeed-io/wechatbot/golang` | `wechatbot` (crates.io) |
-| Async model | `async/await` (Promises) | goroutines + `context.Context` | `async/await` (tokio) |
-| Middleware | ✓ Express-style pipeline | — (use handler composition) | — (use closures) |
-| Storage | Pluggable (file/memory/custom) | File-based | File-based |
-| Media crypto | ✓ AES-128-ECB | ✓ AES-128-ECB | ✓ AES-128-ECB |
-| Events | Typed EventEmitter | Callbacks (OnError, OnQRURL) | Callbacks |
-| Error types | 6 typed error classes | APIError with methods | thiserror enum |
-| Dependencies | 0 runtime | stdlib only | reqwest, serde, aes, tokio |
+| Feature | Node.js | Python | Go | Rust |
+|---|---|---|---|---|
+| Package | `@wechatbot/wechatbot` | `wechatbot-sdk` (PyPI) | `github.com/corespeed-io/wechatbot/golang` | `wechatbot` (crates.io) |
+| Async model | `async/await` (Promises) | `async/await` (asyncio) | goroutines + `context.Context` | `async/await` (tokio) |
+| Middleware | ✓ Express-style pipeline | — (use decorator composition) | — (use handler composition) | — (use closures) |
+| Storage | Pluggable (file/memory/custom) | File-based | File-based | File-based |
+| Media crypto | ✓ AES-128-ECB | ✓ AES-128-ECB | ✓ AES-128-ECB | ✓ AES-128-ECB |
+| Events | Typed EventEmitter | Callbacks (on_qr_url, on_error…) | Callbacks (OnError, OnQRURL) | Callbacks |
+| Error types | 6 typed error classes | Error hierarchy | APIError with methods | thiserror enum |
+| Dependencies | 0 runtime | aiohttp, cryptography | stdlib only | reqwest, serde, aes, tokio |
 
 ## Shared Concepts
 
@@ -95,6 +95,24 @@ nodejs/
 │   └── logger/             # Structured logging
 ├── tests/                  # 69 unit tests
 └── examples/               # 3 example bots
+```
+
+### Python
+```
+python/
+├── wechatbot/
+│   ├── __init__.py         # Public exports
+│   ├── client.py           # WeChatBot (login, start, reply, send)
+│   ├── protocol.py         # Raw iLink API calls
+│   ├── auth.py             # QR login + credential persistence
+│   ├── types.py            # All types (dataclasses)
+│   ├── errors.py           # Error hierarchy
+│   └── crypto.py           # AES-128-ECB encrypt/decrypt
+├── examples/
+│   └── echo_bot.py
+└── tests/
+    ├── test_crypto.py      # 10 tests
+    └── test_client.py      # 8 tests
 ```
 
 ### Go
