@@ -2,7 +2,7 @@
 
 <p align="center">
   <strong>微信 iLink Bot SDK for OpenClaw / AI Agent</strong><br/>
-  <sub>Modular, production-grade, multi-language WeChat iLink Bot SDK</sub>
+  <sub>模块化、生产级、多语言微信 iLink Bot SDK</sub>
 </p>
 
 <p align="center">
@@ -13,20 +13,20 @@
 
 ---
 
+[English](README.EN.MD)
+
 5 分钟让任何 Agent 接入微信。灵感来自 [openclaw-weixin-cli](https://github.com/nicepkg/openclaw-weixin)。
 
-> Connect any agent to WeChat in 5 minutes. Inspired by [openclaw-weixin-cli](https://github.com/nicepkg/openclaw-weixin).
+## 📦 SDK 一览
 
-## 📦 SDK 一览 / SDKs
-
-| SDK | 安装 / Install | 状态 / Status |
-|-----|---------------|---------------|
+| SDK | 安装 | 状态 |
+|-----|------|------|
 | [Node.js](nodejs/) | `npm install @wechatbot/wechatbot` | ✅ 生产就绪 |
 | [Python](python/) | `pip install wechatbot-sdk` | ✅ 生产就绪 |
 | [Go](golang/) | `go get github.com/corespeed-io/wechatbot-go` | ✅ 生产就绪 |
 | [Rust](rust/) | `wechatbot = "0.1"` | ✅ 生产就绪 |
 
-## ⚡ 快速开始 / Quick Start
+## ⚡ 快速开始
 
 ### Node.js
 
@@ -34,9 +34,9 @@
 import { WeChatBot } from '@wechatbot/wechatbot'
 
 const bot = new WeChatBot()
-await bot.login()                             // 扫码登录 / QR code login
+await bot.login()                             // 扫码登录
 bot.onMessage(async (msg) => {
-  await bot.reply(msg, `Echo: ${msg.text}`)   // 自动回复 / Auto reply
+  await bot.reply(msg, `Echo: ${msg.text}`)   // 自动回复
 })
 await bot.start()
 ```
@@ -63,23 +63,21 @@ bot.on_message(Box::new(|msg| {
 bot.run().await?;
 ```
 
-## 🤖 Pi Agent 扩展 / Pi Agent Extension
+## 🤖 Pi Agent 扩展
 
 在微信中直接与 [Pi 编程助手](https://github.com/badlogic/pi-mono) 对话 — 扫码即连。
 
-> Chat with [Pi coding agent](https://github.com/badlogic/pi-mono) directly from WeChat — scan QR code to connect.
-
 ```bash
-# 加载扩展 / Load the extension
+# 加载扩展
 pi -e /path/to/wechatbot/pi-agent/src/index.ts
 
-# 在 Pi 中执行 / Then in Pi:
+# 在 Pi 中执行：
 /wechat          # 显示二维码 → 微信扫码 → 连接成功！
 ```
 
 详见 [pi-agent/README.md](pi-agent/README.md)。
 
-## ✨ 核心功能 / Features
+## ✨ 核心功能
 
 所有 SDK 共享以下能力：
 
@@ -104,11 +102,11 @@ pi -e /path/to/wechatbot/pi-agent/src/index.ts
 | 📝 结构化日志 | 分级、上下文感知、可插拔传输 |
 | 🏗️ 消息构建器 | `.text().image().file().build()` 链式 API |
 
-## 🏗 架构 / Architecture
+## 🏗 架构
 
 ```mermaid
 graph TD
-    A["🤖 你的 Bot 代码 / Your Bot"] --> B["Bot Client（核心调度器 / Orchestrator）"]
+    A["🤖 你的 Bot 代码"] --> B["Bot Client（核心调度器）"]
     B --> C["Poller"]
     B --> D["Sender"]
     B --> E["Typing"]
@@ -121,7 +119,7 @@ graph TD
     H --> I["Storage（凭证 & 状态持久化）"]
 ```
 
-## 📖 文档 / Documentation
+## 📖 文档
 
 | 文档 | 说明 |
 |------|------|
@@ -133,13 +131,11 @@ graph TD
 | [rust/README.md](rust/README.md) | Rust SDK 文档 |
 | [pi-agent/README.md](pi-agent/README.md) | Pi 扩展文档（微信 ↔ Pi 桥接） |
 
-## 🌐 网站 / Website
+## 🌐 网站
 
 双语文档网站已移至独立仓库：[jiweiyuan/wechatbot-landing](https://github.com/jiweiyuan/wechatbot-landing)
 
-> The bilingual documentation website has been moved to a separate repository: [jiweiyuan/wechatbot-landing](https://github.com/jiweiyuan/wechatbot-landing)
-
-## 📁 项目结构 / Project Structure
+## 📁 项目结构
 
 ```
 wechatbot/
