@@ -68,8 +68,8 @@ bot.run().await?;
 Chat with [Pi coding agent](https://github.com/badlogic/pi-mono) directly from WeChat — scan QR code to connect.
 
 ```bash
-# Load the extension
-pi -e /path/to/wechatbot/pi-agent/src/index.ts
+# Install the extension (recommended)
+pi install npm:@wechatbot/pi-agent
 
 # Then in Pi:
 /wechat          # Show QR code → Scan with WeChat → Connected!

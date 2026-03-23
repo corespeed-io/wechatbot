@@ -68,8 +68,8 @@ bot.run().await?;
 在微信中直接与 [Pi 编程助手](https://github.com/badlogic/pi-mono) 对话 — 扫码即连。
 
 ```bash
-# 加载扩展
-pi -e /path/to/wechatbot/pi-agent/src/index.ts
+# 安装扩展（推荐）
+pi install npm:@wechatbot/pi-agent
 
 # 在 Pi 中执行：
 /wechat          # 显示二维码 → 微信扫码 → 连接成功！
