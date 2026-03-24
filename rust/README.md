@@ -121,6 +121,33 @@ bot.send(user_id, "Hello").await?;
 bot.send_typing(user_id).await?;
 ```
 
+### Media Operations
+
+```rust
+// Reply with media content
+bot.reply_media(&msg, SendContent::Image(png_bytes)).await?;
+bot.reply_media(&msg, SendContent::File { data, file_name: "report.pdf".into() }).await?;
+bot.reply_media(&msg, SendContent::Video(mp4_bytes)).await?;
+```
+
+```rust
+// Download media from incoming message (priority: image > file > video > voice)
+if let Some(media) = bot.download(&msg).await? {
+    println!("Type: {}, Size: {} bytes", media.media_type, media.data.len());
+    if let Some(name) = &media.file_name {
+        println!("Filename: {}", name);
+    }
+}
+
+// Download a raw CDN reference directly
+let raw = bot.download_raw(&msg.images[0].media.as_ref().unwrap(), None).await?;
+```
+
+```rust
+// Upload to CDN without sending a message
+let result = bot.upload(&file_bytes, user_id, 3).await?;
+```
+
 ### Lifecycle
 
 ```rust

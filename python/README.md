@@ -70,6 +70,53 @@ bot = WeChatBot(
 | `await bot.send(user_id, text)` | Send to user (needs prior context) |
 | `await bot.send_typing(user_id)` | Show "typing..." indicator |
 | `await bot.stop_typing(user_id)` | Cancel typing indicator |
+| `await bot.reply_media(msg, content)` | Reply with media (image, file, video) |
+| `await bot.send_media(user_id, content)` | Send media to user (needs prior context) |
+| `await bot.download(msg)` | Download media from incoming message |
+| `await bot.download_raw(media, aeskey)` | Download and decrypt a raw CDN media reference |
+| `await bot.upload(data, user_id, media_type)` | Upload file to CDN (does not send) |
+
+## Media Operations
+
+### Sending Media
+
+```python
+# Reply with an image
+await bot.reply_media(msg, {"image": png_bytes})
+
+# Reply with a file
+await bot.reply_media(msg, {"file": data, "file_name": "report.pdf"})
+
+# Reply with a video
+await bot.reply_media(msg, {"video": mp4_bytes, "caption": "Check this"})
+
+# Send media proactively (needs prior context_token)
+await bot.send_media(user_id, {"image": png_bytes})
+```
+
+### Downloading Media
+
+```python
+@bot.on_message
+async def handle(msg):
+    # Auto-detect and download (priority: image > file > video > voice)
+    media = await bot.download(msg)
+    if media:
+        print(f"Type: {media.type}, Size: {len(media.data)} bytes")
+        if media.file_name:
+            print(f"Filename: {media.file_name}")
+
+    # Or download a raw CDN reference directly
+    if msg.images:
+        raw = await bot.download_raw(msg.images[0].media, msg.images[0].aes_key)
+```
+
+### Uploading to CDN
+
+```python
+# Upload without sending — returns UploadResult with CDN metadata
+result = await bot.upload(file_bytes, user_id, media_type=3)
+```
 
 ## Message Types
 

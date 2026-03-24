@@ -119,6 +119,37 @@ err := bot.SendTyping(ctx, userID)
 err := bot.StopTyping(ctx, userID)
 ```
 
+### Media Operations
+
+```go
+// Reply with media content
+bot.ReplyContent(ctx, msg, wechatbot.SendImage(pngBytes))
+bot.ReplyContent(ctx, msg, wechatbot.SendFile(data, "report.pdf"))
+bot.ReplyContent(ctx, msg, wechatbot.SendVideo(mp4Bytes))
+
+// Send media proactively (needs prior context_token)
+bot.SendMedia(ctx, userID, wechatbot.SendImage(pngBytes))
+```
+
+```go
+// Download media from incoming message (priority: image > file > video > voice)
+media, err := bot.Download(ctx, msg)
+if err == nil && media != nil {
+    fmt.Printf("Type: %s, Size: %d bytes\n", media.Type, len(media.Data))
+    if media.FileName != "" {
+        fmt.Printf("Filename: %s\n", media.FileName)
+    }
+}
+
+// Download a raw CDN reference directly
+raw, err := bot.DownloadRaw(ctx, msg.Images[0].Media, msg.Images[0].AESKey)
+```
+
+```go
+// Upload to CDN without sending a message
+result, err := bot.Upload(ctx, fileBytes, userID, 3)
+```
+
 ### Lifecycle
 
 ```go
