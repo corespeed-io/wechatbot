@@ -122,15 +122,26 @@ class WeChatBot:
 
     # ── Sending ───────────────────────────────────────────────────────
 
-    async def reply(self, msg: IncomingMessage, content: SendContent) -> None:
-        """Reply to an incoming message.
+    async def reply(self, msg: IncomingMessage, text: str) -> None:
+        """Reply to an incoming message with text.
+
+        For media (images, files, video), use :meth:`reply_media`.
+        """
+        self._context_tokens[msg.user_id] = msg._context_token
+        await self._send_content(msg.user_id, msg._context_token, text)
+        try:
+            await self.stop_typing(msg.user_id)
+        except Exception:
+            pass
+
+    async def reply_media(self, msg: IncomingMessage, content: SendContent) -> None:
+        """Reply to an incoming message with media content.
 
         Accepts text string or media dict::
 
-            await bot.reply(msg, "Hello!")
-            await bot.reply(msg, {"image": png_bytes})
-            await bot.reply(msg, {"file": data, "file_name": "report.pdf"})
-            await bot.reply(msg, {"video": mp4_bytes, "caption": "Check this"})
+            await bot.reply_media(msg, {"image": png_bytes})
+            await bot.reply_media(msg, {"file": data, "file_name": "report.pdf"})
+            await bot.reply_media(msg, {"video": mp4_bytes, "caption": "Check this"})
         """
         self._context_tokens[msg.user_id] = msg._context_token
         await self._send_content(msg.user_id, msg._context_token, content)
@@ -139,8 +150,18 @@ class WeChatBot:
         except Exception:
             pass
 
-    async def send(self, user_id: str, content: SendContent) -> None:
-        """Send content to a user (requires prior context_token)."""
+    async def send(self, user_id: str, text: str) -> None:
+        """Send a text message to a user (requires prior context_token).
+
+        For media (images, files, video), use :meth:`send_media`.
+        """
+        ct = self._context_tokens.get(user_id)
+        if not ct:
+            raise NoContextError(user_id)
+        await self._send_content(user_id, ct, text)
+
+    async def send_media(self, user_id: str, content: SendContent) -> None:
+        """Send media content to a user (requires prior context_token)."""
         ct = self._context_tokens.get(user_id)
         if not ct:
             raise NoContextError(user_id)

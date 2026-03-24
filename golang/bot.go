@@ -429,7 +429,10 @@ func (b *Bot) cdnDownload(ctx context.Context, media *CDNMedia, aeskeyOverride s
 	downloadURL := fmt.Sprintf("%s/download?encrypted_query_param=%s",
 		protocol.CDNBaseURL, url.QueryEscape(media.EncryptQueryParam))
 
-	req, _ := http.NewRequestWithContext(ctx, "GET", downloadURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", downloadURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("cdn download request: %w", err)
+	}
 	client := &http.Client{Timeout: 60 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -473,7 +476,9 @@ func (b *Bot) cdnUpload(ctx context.Context, creds *auth.Credentials, data []byt
 	}
 
 	var fileKeyBuf [16]byte
-	rand.Read(fileKeyBuf[:])
+	if _, err := rand.Read(fileKeyBuf[:]); err != nil {
+		return nil, fmt.Errorf("generate file key: %w", err)
+	}
 	fileKey := hex.EncodeToString(fileKeyBuf[:])
 
 	rawMD5 := md5.Sum(data)
@@ -501,7 +506,10 @@ func (b *Bot) cdnUpload(ctx context.Context, creds *auth.Credentials, data []byt
 		url.QueryEscape(uploadResp.UploadParam),
 		url.QueryEscape(fileKey))
 
-	req, _ := http.NewRequestWithContext(ctx, "POST", uploadURL, bytes.NewReader(ciphertext))
+	req, err := http.NewRequestWithContext(ctx, "POST", uploadURL, bytes.NewReader(ciphertext))
+	if err != nil {
+		return nil, fmt.Errorf("cdn upload request: %w", err)
+	}
 	req.Header.Set("Content-Type", "application/octet-stream")
 	client := &http.Client{Timeout: 60 * time.Second}
 	resp, err := client.Do(req)

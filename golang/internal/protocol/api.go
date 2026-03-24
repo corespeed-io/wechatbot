@@ -267,7 +267,9 @@ func (c *Client) GetUploadURL(ctx context.Context, baseURL, token string, req Ge
 		return nil, err
 	}
 	var result GetUploadURLResponse
-	json.Unmarshal(raw, &result)
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, fmt.Errorf("getuploadurl decode: %w", err)
+	}
 	return &result, nil
 }
 

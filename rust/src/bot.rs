@@ -11,6 +11,7 @@ use crate::crypto;
 use crate::error::{Result, WeChatBotError};
 use crate::protocol::{self, ILinkClient};
 use crate::types::*;
+use md5::{Md5, Digest};
 use rand::RngCore;
 use serde_json::json;
 
@@ -399,7 +400,7 @@ impl WeChatBot {
         rand::thread_rng().fill_bytes(&mut filekey_buf);
         let filekey = hex::encode(filekey_buf);
 
-        let raw_md5 = format!("{:x}", md5::compute(data));
+        let raw_md5 = hex::encode(Md5::digest(data));
 
         let params = json!({
             "filekey": filekey,

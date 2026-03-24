@@ -13,7 +13,7 @@ from .types import (
     UploadResult,
     MediaType,
 )
-from .client import WeChatBot
+from .client import SendContent, WeChatBot
 from .errors import (
     WeChatBotError,
     ApiError,
@@ -31,6 +31,7 @@ from .crypto import (
 
 __all__ = [
     "WeChatBot",
+    "SendContent",
     "Credentials",
     "IncomingMessage",
     "ImageContent",
