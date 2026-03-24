@@ -13,7 +13,7 @@ from uuid import uuid4
 import aiohttp
 
 from .errors import ApiError
-from .types import MessageItemType, MessageState, MessageType
+from .types import MediaType, MessageItemType, MessageState, MessageType
 
 DEFAULT_BASE_URL = "https://ilinkai.weixin.qq.com"
 CDN_BASE_URL = "https://novac2c.cdn.weixin.qq.com/c2c"
@@ -117,6 +117,31 @@ class ILinkApi:
             "base_info": _base_info(),
         }
         return await self._post(base_url, "/ilink/bot/sendtyping", token, body)
+
+    async def get_upload_url(
+        self,
+        base_url: str,
+        token: str,
+        params: dict[str, Any],
+    ) -> dict[str, Any]:
+        body = {**params, "base_info": _base_info()}
+        return await self._post(base_url, "/ilink/bot/getuploadurl", token, body)
+
+    @staticmethod
+    def build_media_message(
+        user_id: str,
+        context_token: str,
+        item_list: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        return {
+            "from_user_id": "",
+            "to_user_id": user_id,
+            "client_id": str(uuid4()),
+            "message_type": MessageType.BOT,
+            "message_state": MessageState.FINISH,
+            "context_token": context_token,
+            "item_list": item_list,
+        }
 
     async def _post(
         self,

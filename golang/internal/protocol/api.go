@@ -232,6 +232,58 @@ func (c *Client) SendTyping(ctx context.Context, baseURL, token, userID, ticket 
 	return err
 }
 
+// GetUploadURLRequest holds parameters for getuploadurl.
+type GetUploadURLRequest struct {
+	FileKey       string `json:"filekey"`
+	MediaType     int    `json:"media_type"`
+	ToUserID      string `json:"to_user_id"`
+	RawSize       int    `json:"rawsize"`
+	RawFileMD5    string `json:"rawfilemd5"`
+	FileSize      int    `json:"filesize"`
+	NoNeedThumb   bool   `json:"no_need_thumb"`
+	AESKey        string `json:"aeskey,omitempty"`
+}
+
+// GetUploadURLResponse from getuploadurl.
+type GetUploadURLResponse struct {
+	UploadParam string `json:"upload_param"`
+}
+
+// GetUploadURL requests an upload URL for CDN media upload.
+func (c *Client) GetUploadURL(ctx context.Context, baseURL, token string, req GetUploadURLRequest) (*GetUploadURLResponse, error) {
+	body := map[string]interface{}{
+		"filekey":        req.FileKey,
+		"media_type":     req.MediaType,
+		"to_user_id":     req.ToUserID,
+		"rawsize":        req.RawSize,
+		"rawfilemd5":     req.RawFileMD5,
+		"filesize":       req.FileSize,
+		"no_need_thumb":  req.NoNeedThumb,
+		"aeskey":         req.AESKey,
+		"base_info":      baseInfo(),
+	}
+	raw, err := c.apiPost(ctx, baseURL, "/ilink/bot/getuploadurl", token, body, 15*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	var result GetUploadURLResponse
+	json.Unmarshal(raw, &result)
+	return &result, nil
+}
+
+// BuildMediaMessage creates a media message payload.
+func BuildMediaMessage(userID, contextToken string, itemList []map[string]interface{}) map[string]interface{} {
+	return map[string]interface{}{
+		"from_user_id":  "",
+		"to_user_id":    userID,
+		"client_id":     newUUID(),
+		"message_type":  2,
+		"message_state": 2,
+		"context_token": contextToken,
+		"item_list":     itemList,
+	}
+}
+
 // BuildTextMessage creates a text message payload.
 func BuildTextMessage(userID, contextToken, text string) map[string]interface{} {
 	return map[string]interface{}{

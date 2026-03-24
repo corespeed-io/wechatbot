@@ -218,6 +218,24 @@ pub struct QuotedMessage {
     pub text: Option<String>,
 }
 
+/// Result of downloading media from a message.
+#[derive(Debug, Clone)]
+pub struct DownloadedMedia {
+    pub data: Vec<u8>,
+    /// "image", "file", "video", "voice"
+    pub media_type: String,
+    pub file_name: Option<String>,
+    pub format: Option<String>,
+}
+
+/// Result of uploading media to CDN.
+#[derive(Debug, Clone)]
+pub struct UploadResult {
+    pub media: CDNMedia,
+    pub aes_key: [u8; 16],
+    pub encrypted_file_size: usize,
+}
+
 /// Stored login credentials.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Credentials {

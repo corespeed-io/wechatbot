@@ -196,6 +196,38 @@ impl ILinkClient {
 
         Ok(value)
     }
+
+    /// Request an upload URL for CDN media upload.
+    pub async fn get_upload_url(
+        &self,
+        base_url: &str,
+        token: &str,
+        params: &Value,
+    ) -> Result<GetUploadUrlResponse> {
+        let mut body = params.clone();
+        body["base_info"] = json!({ "channel_version": CHANNEL_VERSION });
+        let resp = self.api_post(base_url, "/ilink/bot/getuploadurl", token, &body, 15).await?;
+        Ok(serde_json::from_value(resp)?)
+    }
+}
+
+/// Get upload URL response.
+#[derive(Debug, Deserialize)]
+pub struct GetUploadUrlResponse {
+    pub upload_param: Option<String>,
+}
+
+/// Build a media message payload.
+pub fn build_media_message(user_id: &str, context_token: &str, item_list: Vec<Value>) -> Value {
+    json!({
+        "from_user_id": "",
+        "to_user_id": user_id,
+        "client_id": Uuid::new_v4().to_string(),
+        "message_type": 2,
+        "message_state": 2,
+        "context_token": context_token,
+        "item_list": item_list
+    })
 }
 
 /// Build a text message payload.

@@ -328,6 +328,52 @@ func TestTypesEnumValues(t *testing.T) {
 	}
 }
 
+func TestCategorizeByExtension(t *testing.T) {
+	tests := []struct{ name, want string }{
+		{"photo.png", "image"},
+		{"photo.JPG", "image"},
+		{"anim.gif", "image"},
+		{"clip.mp4", "video"},
+		{"clip.MOV", "video"},
+		{"report.pdf", "file"},
+		{"data.csv", "file"},
+		{"noext", "file"},
+	}
+	for _, tc := range tests {
+		got := categorizeByExtension(tc.name)
+		if got != tc.want {
+			t.Errorf("categorizeByExtension(%q) = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestCdnMediaMap(t *testing.T) {
+	m := &CDNMedia{EncryptQueryParam: "param=1", AESKey: "key123", EncryptType: 1}
+	d := cdnMediaMap(m)
+	if d["encrypt_query_param"] != "param=1" || d["aes_key"] != "key123" || d["encrypt_type"] != 1 {
+		t.Fatalf("unexpected cdnMediaMap result: %v", d)
+	}
+}
+
+func TestSendContentConstructors(t *testing.T) {
+	s := SendText("hello")
+	if s.Text != "hello" {
+		t.Fatalf("SendText: got %q", s.Text)
+	}
+	s = SendImage([]byte{1, 2, 3})
+	if len(s.Image) != 3 {
+		t.Fatalf("SendImage: got len %d", len(s.Image))
+	}
+	s = SendVideo([]byte{4, 5})
+	if len(s.Video) != 2 {
+		t.Fatalf("SendVideo: got len %d", len(s.Video))
+	}
+	s = SendFile([]byte{6}, "test.pdf")
+	if len(s.File) != 1 || s.FileName != "test.pdf" {
+		t.Fatalf("SendFile: got len=%d name=%q", len(s.File), s.FileName)
+	}
+}
+
 func TestCredentialsJSON(t *testing.T) {
 	creds := Credentials{
 		Token:     "tok",

@@ -3,28 +3,53 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Union
+from urllib.parse import quote
+
+import aiohttp
 
 from .auth import clear_credentials, load_credentials, login
-from .errors import ApiError, NoContextError
-from .protocol import DEFAULT_BASE_URL, ILinkApi
+from .crypto import (
+    decode_aes_key,
+    decrypt_aes_ecb,
+    encode_aes_key_base64,
+    encode_aes_key_hex,
+    encrypt_aes_ecb,
+    generate_aes_key,
+)
+from .errors import ApiError, MediaError, NoContextError
+from .protocol import CDN_BASE_URL, DEFAULT_BASE_URL, ILinkApi
 from .types import (
     CDNMedia,
     Credentials,
+    DownloadedMedia,
     FileContent,
     ImageContent,
     IncomingMessage,
+    MediaType,
     MessageItemType,
     MessageType,
     QuotedMessage,
+    UploadResult,
     VideoContent,
     VoiceContent,
 )
 
 MessageHandler = Callable[[IncomingMessage], Any]
+
+# SendContent: str for text, or dict for media
+# Examples:
+#   "Hello!"                          → text
+#   {"text": "Hello!"}                → text
+#   {"image": bytes_data}             → image
+#   {"video": bytes_data}             → video
+#   {"file": bytes_data, "file_name": "report.pdf"} → file
+SendContent = Union[str, dict[str, Any]]
 
 
 class WeChatBot:
@@ -97,21 +122,86 @@ class WeChatBot:
 
     # ── Sending ───────────────────────────────────────────────────────
 
-    async def reply(self, msg: IncomingMessage, text: str) -> None:
-        """Reply to an incoming message. Auto context_token + auto stop typing."""
+    async def reply(self, msg: IncomingMessage, content: SendContent) -> None:
+        """Reply to an incoming message.
+
+        Accepts text string or media dict::
+
+            await bot.reply(msg, "Hello!")
+            await bot.reply(msg, {"image": png_bytes})
+            await bot.reply(msg, {"file": data, "file_name": "report.pdf"})
+            await bot.reply(msg, {"video": mp4_bytes, "caption": "Check this"})
+        """
         self._context_tokens[msg.user_id] = msg._context_token
-        await self._send_text(msg.user_id, text, msg._context_token)
+        await self._send_content(msg.user_id, msg._context_token, content)
         try:
             await self.stop_typing(msg.user_id)
         except Exception:
             pass
 
-    async def send(self, user_id: str, text: str) -> None:
-        """Send text to a user (requires prior context_token)."""
+    async def send(self, user_id: str, content: SendContent) -> None:
+        """Send content to a user (requires prior context_token)."""
         ct = self._context_tokens.get(user_id)
         if not ct:
             raise NoContextError(user_id)
-        await self._send_text(user_id, text, ct)
+        await self._send_content(user_id, ct, content)
+
+    # ── Download ───────────────────────────────────────────────────
+
+    async def download(self, msg: IncomingMessage) -> DownloadedMedia | None:
+        """Download media from an incoming message.
+
+        Returns None if the message has no media.
+        Priority: image > file > video > voice.
+        """
+        # Image
+        if msg.images:
+            img = msg.images[0]
+            if img.media:
+                data = await self._cdn_download(img.media, img.aes_key)
+                return DownloadedMedia(data=data, type="image")
+
+        # File
+        if msg.files:
+            f = msg.files[0]
+            if f.media:
+                data = await self._cdn_download(f.media)
+                return DownloadedMedia(
+                    data=data, type="file",
+                    file_name=f.file_name or "file.bin",
+                )
+
+        # Video
+        if msg.videos:
+            v = msg.videos[0]
+            if v.media:
+                data = await self._cdn_download(v.media)
+                return DownloadedMedia(data=data, type="video")
+
+        # Voice
+        if msg.voices:
+            v = msg.voices[0]
+            if v.media:
+                data = await self._cdn_download(v.media)
+                return DownloadedMedia(data=data, type="voice", format="silk")
+
+        return None
+
+    async def download_raw(self, media: CDNMedia, aeskey_override: str | None = None) -> bytes:
+        """Download and decrypt a raw CDN media reference."""
+        return await self._cdn_download(media, aeskey_override)
+
+    # ── Upload ─────────────────────────────────────────────────────
+
+    async def upload(
+        self,
+        data: bytes,
+        user_id: str,
+        media_type: int,
+    ) -> UploadResult:
+        """Upload a file to WeChat CDN. Does NOT send a message."""
+        creds = self._require_creds()
+        return await self._cdn_upload(creds, data, user_id, media_type)
 
     async def send_typing(self, user_id: str) -> None:
         """Show 'typing...' indicator."""
@@ -204,7 +294,185 @@ class WeChatBot:
         await self.login()
         await self.start()
 
-    # ── Internal ──────────────────────────────────────────────────────
+    # ── Internal: send pipeline ──────────────────────────────────────
+
+    async def _send_content(
+        self, user_id: str, context_token: str, content: SendContent,
+    ) -> None:
+        # String shorthand → text
+        if isinstance(content, str):
+            await self._send_text(user_id, content, context_token)
+            return
+
+        # {"text": ...}
+        if "text" in content:
+            await self._send_text(user_id, content["text"], context_token)
+            return
+
+        # {"image": bytes}
+        if "image" in content:
+            await self._send_media_buffer(
+                user_id, context_token, content["image"],
+                MediaType.IMAGE,
+                lambda result: {"type": int(MessageItemType.IMAGE), "image_item": {
+                    "media": _cdn_media_dict(result.media),
+                    "mid_size": result.encrypted_file_size,
+                }},
+                content.get("caption"),
+            )
+            return
+
+        # {"video": bytes}
+        if "video" in content:
+            await self._send_media_buffer(
+                user_id, context_token, content["video"],
+                MediaType.VIDEO,
+                lambda result: {"type": int(MessageItemType.VIDEO), "video_item": {
+                    "media": _cdn_media_dict(result.media),
+                    "video_size": result.encrypted_file_size,
+                }},
+                content.get("caption"),
+            )
+            return
+
+        # {"file": bytes, "file_name": str}
+        if "file" in content:
+            file_name = content.get("file_name", "file.bin")
+            category = _categorize_by_extension(file_name)
+
+            if category == "image":
+                await self._send_content(user_id, context_token, {
+                    "image": content["file"], "caption": content.get("caption"),
+                })
+                return
+
+            if category == "video":
+                await self._send_content(user_id, context_token, {
+                    "video": content["file"], "caption": content.get("caption"),
+                })
+                return
+
+            # Generic file
+            caption = content.get("caption")
+            if caption:
+                await self._send_text(user_id, caption, context_token)
+            raw_data = content["file"]
+            await self._send_media_buffer(
+                user_id, context_token, raw_data,
+                MediaType.FILE,
+                lambda result: {"type": int(MessageItemType.FILE), "file_item": {
+                    "media": _cdn_media_dict(result.media),
+                    "file_name": file_name,
+                    "len": str(len(raw_data)),
+                }},
+            )
+            return
+
+        raise ValueError(f"Unsupported content type: {content!r}")
+
+    async def _send_media_buffer(
+        self,
+        user_id: str,
+        context_token: str,
+        data: bytes,
+        media_type: int,
+        build_item: Callable[[UploadResult], dict[str, Any]],
+        caption: str | None = None,
+    ) -> None:
+        creds = self._require_creds()
+        result = await self._cdn_upload(creds, data, user_id, media_type)
+        items: list[dict[str, Any]] = []
+        if caption:
+            items.append({"type": int(MessageItemType.TEXT), "text_item": {"text": caption}})
+        items.append(build_item(result))
+        msg = self._api.build_media_message(user_id, context_token, items)
+        await self._api.send_message(creds.base_url, creds.token, msg)
+        self._log(f"Sent media type={media_type} to {user_id} ({len(data)} bytes)")
+
+    # ── Internal: CDN download ─────────────────────────────────────
+
+    async def _cdn_download(
+        self, media: CDNMedia, aeskey_override: str | None = None,
+    ) -> bytes:
+        url = f"{CDN_BASE_URL}/download?encrypted_query_param={quote(media.encrypt_query_param)}"
+        timeout = aiohttp.ClientTimeout(total=60)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(url) as resp:
+                if resp.status >= 400:
+                    raise MediaError(f"CDN download failed: HTTP {resp.status}")
+                ciphertext = await resp.read()
+
+        key_source = aeskey_override or media.aes_key
+        if not key_source:
+            raise MediaError("No AES key available for decryption")
+
+        aes_key = decode_aes_key(key_source)
+        return decrypt_aes_ecb(ciphertext, aes_key)
+
+    # ── Internal: CDN upload ───────────────────────────────────────
+
+    async def _cdn_upload(
+        self,
+        creds: Credentials,
+        data: bytes,
+        user_id: str,
+        media_type: int,
+    ) -> UploadResult:
+        aes_key = generate_aes_key()
+        ciphertext = encrypt_aes_ecb(data, aes_key)
+        filekey = os.urandom(16).hex()
+        raw_md5 = hashlib.md5(data).hexdigest()
+
+        upload_info = await self._api.get_upload_url(
+            creds.base_url, creds.token,
+            {
+                "filekey": filekey,
+                "media_type": media_type,
+                "to_user_id": user_id,
+                "rawsize": len(data),
+                "rawfilemd5": raw_md5,
+                "filesize": len(ciphertext),
+                "no_need_thumb": True,
+                "aeskey": encode_aes_key_hex(aes_key),
+            },
+        )
+
+        upload_param = upload_info.get("upload_param")
+        if not upload_param:
+            raise MediaError("getuploadurl did not return upload_param")
+
+        upload_url = (
+            f"{CDN_BASE_URL}/upload"
+            f"?encrypted_query_param={quote(upload_param)}"
+            f"&filekey={quote(filekey)}"
+        )
+
+        timeout = aiohttp.ClientTimeout(total=60)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(
+                upload_url,
+                data=ciphertext,
+                headers={"Content-Type": "application/octet-stream"},
+            ) as resp:
+                if resp.status >= 400:
+                    err_msg = resp.headers.get("x-error-message", f"HTTP {resp.status}")
+                    raise MediaError(f"CDN upload failed: {err_msg}")
+
+                encrypt_query_param = resp.headers.get("x-encrypted-param")
+                if not encrypt_query_param:
+                    raise MediaError("CDN upload succeeded but x-encrypted-param header missing")
+
+        return UploadResult(
+            media=CDNMedia(
+                encrypt_query_param=encrypt_query_param,
+                aes_key=encode_aes_key_base64(aes_key),
+                encrypt_type=1,
+            ),
+            aes_key=aes_key,
+            encrypted_file_size=len(ciphertext),
+        )
+
+    # ── Internal: text ─────────────────────────────────────────────
 
     async def _send_text(self, user_id: str, text: str, context_token: str) -> None:
         if not text:
@@ -360,6 +628,31 @@ def _chunk_text(text: str, limit: int) -> list[str]:
         chunks.append(text[:cut])
         text = text[cut:]
     return chunks or [""]
+
+
+_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"}
+_VIDEO_EXTS = {".mp4", ".mov", ".webm", ".mkv", ".avi"}
+
+
+def _categorize_by_extension(filename: str) -> str:
+    """Determine media category from file extension."""
+    ext = Path(filename).suffix.lower()
+    if ext in _IMAGE_EXTS:
+        return "image"
+    if ext in _VIDEO_EXTS:
+        return "video"
+    return "file"
+
+
+def _cdn_media_dict(media: CDNMedia) -> dict[str, Any]:
+    """Convert CDNMedia dataclass to dict for JSON serialization."""
+    d: dict[str, Any] = {
+        "encrypt_query_param": media.encrypt_query_param,
+        "aes_key": media.aes_key,
+    }
+    if media.encrypt_type is not None:
+        d["encrypt_type"] = media.encrypt_type
+    return d
 
 
 def _parse_cdn_media(data: dict[str, Any] | None) -> CDNMedia | None:

@@ -96,6 +96,23 @@ class Credentials:
 
 
 @dataclass
+class DownloadedMedia:
+    """Result of downloading media from a message."""
+    data: bytes
+    type: Literal["image", "file", "video", "voice"]
+    file_name: str | None = None
+    format: str | None = None
+
+
+@dataclass
+class UploadResult:
+    """Result of uploading media to CDN."""
+    media: CDNMedia
+    aes_key: bytes
+    encrypted_file_size: int
+
+
+@dataclass
 class IncomingMessage:
     user_id: str
     text: str

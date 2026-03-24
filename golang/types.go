@@ -197,6 +197,21 @@ type QuotedMessage struct {
 	Type  ContentType
 }
 
+// DownloadedMedia is the result of downloading media from a message.
+type DownloadedMedia struct {
+	Data     []byte
+	Type     string // "image", "file", "video", "voice"
+	FileName string
+	Format   string // "silk" for voice
+}
+
+// UploadResult is the result of uploading media to CDN.
+type UploadResult struct {
+	Media             CDNMedia
+	AESKey            []byte
+	EncryptedFileSize int
+}
+
 // Credentials holds login credentials.
 type Credentials struct {
 	Token     string `json:"token"`

@@ -1,14 +1,18 @@
 //! Main WeChatBot client.
 
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 use tokio::time::{sleep, Duration};
 use tracing::{error, info, warn};
 
+use crate::crypto;
 use crate::error::{Result, WeChatBotError};
 use crate::protocol::{self, ILinkClient};
 use crate::types::*;
+use rand::RngCore;
+use serde_json::json;
 
 /// Message handler callback type.
 pub type MessageHandler = Box<dyn Fn(&IncomingMessage) + Send + Sync>;
@@ -162,6 +166,73 @@ impl WeChatBot {
         Ok(())
     }
 
+    /// Reply with media content (image, video, or file).
+    pub async fn reply_media(&self, msg: &IncomingMessage, content: SendContent) -> Result<()> {
+        self.context_tokens
+            .write()
+            .await
+            .insert(msg.user_id.clone(), msg.context_token.clone());
+        self.send_content(&msg.user_id, &msg.context_token, content).await
+    }
+
+    /// Send any content type to a user (needs prior context_token).
+    pub async fn send_media(&self, user_id: &str, content: SendContent) -> Result<()> {
+        let ct = self.context_tokens.read().await.get(user_id).cloned();
+        let ct = ct.ok_or_else(|| WeChatBotError::NoContext(user_id.to_string()))?;
+        self.send_content(user_id, &ct, content).await
+    }
+
+    /// Download media from an incoming message.
+    /// Returns None if the message has no media. Priority: image > file > video > voice.
+    pub async fn download(&self, msg: &IncomingMessage) -> Result<Option<DownloadedMedia>> {
+        if let Some(img) = msg.images.first() {
+            if let Some(ref media) = img.media {
+                let data = self.cdn_download(media, img.aes_key.as_deref()).await?;
+                return Ok(Some(DownloadedMedia {
+                    data, media_type: "image".into(), file_name: None, format: None,
+                }));
+            }
+        }
+        if let Some(file) = msg.files.first() {
+            if let Some(ref media) = file.media {
+                let data = self.cdn_download(media, None).await?;
+                return Ok(Some(DownloadedMedia {
+                    data, media_type: "file".into(),
+                    file_name: Some(file.file_name.clone().unwrap_or_else(|| "file.bin".into())),
+                    format: None,
+                }));
+            }
+        }
+        if let Some(video) = msg.videos.first() {
+            if let Some(ref media) = video.media {
+                let data = self.cdn_download(media, None).await?;
+                return Ok(Some(DownloadedMedia {
+                    data, media_type: "video".into(), file_name: None, format: None,
+                }));
+            }
+        }
+        if let Some(voice) = msg.voices.first() {
+            if let Some(ref media) = voice.media {
+                let data = self.cdn_download(media, None).await?;
+                return Ok(Some(DownloadedMedia {
+                    data, media_type: "voice".into(), file_name: None, format: Some("silk".into()),
+                }));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Download and decrypt a raw CDN media reference.
+    pub async fn download_raw(&self, media: &CDNMedia, aeskey_override: Option<&str>) -> Result<Vec<u8>> {
+        self.cdn_download(media, aeskey_override).await
+    }
+
+    /// Upload data to WeChat CDN without sending a message.
+    pub async fn upload(&self, data: &[u8], user_id: &str, media_type: i32) -> Result<UploadResult> {
+        let (base_url, token) = self.get_auth().await?;
+        self.cdn_upload(&base_url, &token, data, user_id, media_type).await
+    }
+
     /// Start the long-poll loop. Blocks until stopped.
     pub async fn run(&self) -> Result<()> {
         *self.stopped.write().await = false;
@@ -220,7 +291,174 @@ impl WeChatBot {
         *self.stopped.write().await = true;
     }
 
-    // --- internal ---
+    // --- internal media ---
+
+    fn send_content<'a>(
+        &'a self, user_id: &'a str, context_token: &'a str, content: SendContent,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>> {
+        Box::pin(async move {
+            let (base_url, token) = self.get_auth().await?;
+            match content {
+                SendContent::Text(text) => self.send_text(user_id, &text, context_token).await,
+                SendContent::Image { data, caption } => {
+                    let result = self.cdn_upload(&base_url, &token, &data, user_id, 1).await?;
+                    let mut items = Vec::new();
+                    if let Some(cap) = caption {
+                        items.push(json!({"type": 1, "text_item": {"text": cap}}));
+                    }
+                    items.push(json!({"type": 2, "image_item": {
+                        "media": cdn_media_json(&result.media),
+                        "mid_size": result.encrypted_file_size,
+                    }}));
+                    let msg = protocol::build_media_message(user_id, context_token, items);
+                    self.client.send_message(&base_url, &token, &msg).await
+                }
+                SendContent::Video { data, caption } => {
+                    let result = self.cdn_upload(&base_url, &token, &data, user_id, 2).await?;
+                    let mut items = Vec::new();
+                    if let Some(cap) = caption {
+                        items.push(json!({"type": 1, "text_item": {"text": cap}}));
+                    }
+                    items.push(json!({"type": 5, "video_item": {
+                        "media": cdn_media_json(&result.media),
+                        "video_size": result.encrypted_file_size,
+                    }}));
+                    let msg = protocol::build_media_message(user_id, context_token, items);
+                    self.client.send_message(&base_url, &token, &msg).await
+                }
+                SendContent::File { data, file_name, caption } => {
+                    let cat = categorize_by_extension(&file_name);
+                    match cat {
+                        "image" => {
+                            self.send_content(user_id, context_token, SendContent::Image {
+                                data, caption,
+                            }).await
+                        }
+                        "video" => {
+                            self.send_content(user_id, context_token, SendContent::Video {
+                                data, caption,
+                            }).await
+                        }
+                        _ => {
+                            if let Some(cap) = caption {
+                                self.send_text(user_id, &cap, context_token).await?;
+                            }
+                            let data_len = data.len();
+                            let result = self.cdn_upload(&base_url, &token, &data, user_id, 3).await?;
+                            let items = vec![json!({"type": 4, "file_item": {
+                                "media": cdn_media_json(&result.media),
+                                "file_name": file_name,
+                                "len": data_len.to_string(),
+                            }})];
+                            let msg = protocol::build_media_message(user_id, context_token, items);
+                            self.client.send_message(&base_url, &token, &msg).await
+                        }
+                    }
+                }
+            }
+        })
+    }
+
+    async fn cdn_download(&self, media: &CDNMedia, aeskey_override: Option<&str>) -> Result<Vec<u8>> {
+        let download_url = format!(
+            "{}/download?encrypted_query_param={}",
+            protocol::CDN_BASE_URL,
+            urlencoding::encode(&media.encrypt_query_param)
+        );
+
+        let resp = reqwest::Client::new()
+            .get(&download_url)
+            .timeout(Duration::from_secs(60))
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            return Err(WeChatBotError::Media(format!(
+                "CDN download failed: HTTP {}", resp.status()
+            )));
+        }
+
+        let ciphertext = resp.bytes().await?.to_vec();
+
+        let key_source = aeskey_override.unwrap_or(&media.aes_key);
+        if key_source.is_empty() {
+            return Err(WeChatBotError::Media("no AES key available".into()));
+        }
+
+        let aes_key = crypto::decode_aes_key(key_source)?;
+        crypto::decrypt_aes_ecb(&ciphertext, &aes_key)
+    }
+
+    async fn cdn_upload(
+        &self, base_url: &str, token: &str, data: &[u8], user_id: &str, media_type: i32,
+    ) -> Result<UploadResult> {
+        let aes_key = crypto::generate_aes_key();
+        let ciphertext = crypto::encrypt_aes_ecb(data, &aes_key);
+
+        let mut filekey_buf = [0u8; 16];
+        rand::thread_rng().fill_bytes(&mut filekey_buf);
+        let filekey = hex::encode(filekey_buf);
+
+        let raw_md5 = format!("{:x}", md5::compute(data));
+
+        let params = json!({
+            "filekey": filekey,
+            "media_type": media_type,
+            "to_user_id": user_id,
+            "rawsize": data.len(),
+            "rawfilemd5": raw_md5,
+            "filesize": ciphertext.len(),
+            "no_need_thumb": true,
+            "aeskey": crypto::encode_aes_key_hex(&aes_key),
+        });
+
+        let upload_resp = self.client.get_upload_url(base_url, token, &params).await?;
+        let upload_param = upload_resp.upload_param.ok_or_else(|| {
+            WeChatBotError::Media("getuploadurl did not return upload_param".into())
+        })?;
+
+        let upload_url = format!(
+            "{}/upload?encrypted_query_param={}&filekey={}",
+            protocol::CDN_BASE_URL,
+            urlencoding::encode(&upload_param),
+            urlencoding::encode(&filekey),
+        );
+
+        let encrypted_file_size = ciphertext.len();
+
+        let resp = reqwest::Client::new()
+            .post(&upload_url)
+            .header("Content-Type", "application/octet-stream")
+            .timeout(Duration::from_secs(60))
+            .body(ciphertext)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let err_msg = resp.headers().get("x-error-message")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("upload failed")
+                .to_string();
+            return Err(WeChatBotError::Media(format!("CDN upload failed: {}", err_msg)));
+        }
+
+        let encrypt_query_param = resp.headers().get("x-encrypted-param")
+            .and_then(|v| v.to_str().ok())
+            .ok_or_else(|| WeChatBotError::Media("x-encrypted-param header missing".into()))?
+            .to_string();
+
+        Ok(UploadResult {
+            media: CDNMedia {
+                encrypt_query_param,
+                aes_key: crypto::encode_aes_key_base64(&aes_key),
+                encrypt_type: Some(1),
+            },
+            aes_key,
+            encrypted_file_size,
+        })
+    }
+
+    // --- internal text ---
 
     async fn send_text(&self, user_id: &str, text: &str, context_token: &str) -> Result<()> {
         let (base_url, token) = self.get_auth().await?;
@@ -276,6 +514,38 @@ impl WeChatBot {
         if let Some(ref cb) = self.on_error {
             cb(err);
         }
+    }
+}
+
+/// Content to send via reply_media / send_media.
+pub enum SendContent {
+    Text(String),
+    Image { data: Vec<u8>, caption: Option<String> },
+    Video { data: Vec<u8>, caption: Option<String> },
+    File { data: Vec<u8>, file_name: String, caption: Option<String> },
+}
+
+fn cdn_media_json(media: &CDNMedia) -> serde_json::Value {
+    let mut v = json!({
+        "encrypt_query_param": media.encrypt_query_param,
+        "aes_key": media.aes_key,
+    });
+    if let Some(et) = media.encrypt_type {
+        v["encrypt_type"] = json!(et);
+    }
+    v
+}
+
+fn categorize_by_extension(filename: &str) -> &'static str {
+    let ext = Path::new(filename)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    match ext.as_str() {
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "svg" => "image",
+        "mp4" | "mov" | "webm" | "mkv" | "avi" => "video",
+        _ => "file",
     }
 }
 
@@ -699,5 +969,51 @@ mod tests {
         assert!(!path.is_empty());
         assert!(path.contains(".wechatbot"));
         assert!(path.contains("credentials.json"));
+    }
+
+    #[test]
+    fn categorize_image_extensions() {
+        assert_eq!(categorize_by_extension("photo.png"), "image");
+        assert_eq!(categorize_by_extension("photo.JPG"), "image");
+        assert_eq!(categorize_by_extension("anim.gif"), "image");
+        assert_eq!(categorize_by_extension("pic.webp"), "image");
+    }
+
+    #[test]
+    fn categorize_video_extensions() {
+        assert_eq!(categorize_by_extension("clip.mp4"), "video");
+        assert_eq!(categorize_by_extension("clip.MOV"), "video");
+        assert_eq!(categorize_by_extension("movie.webm"), "video");
+    }
+
+    #[test]
+    fn categorize_file_extensions() {
+        assert_eq!(categorize_by_extension("report.pdf"), "file");
+        assert_eq!(categorize_by_extension("data.csv"), "file");
+        assert_eq!(categorize_by_extension("noext"), "file");
+    }
+
+    #[test]
+    fn cdn_media_json_with_encrypt_type() {
+        let media = CDNMedia {
+            encrypt_query_param: "param=1".to_string(),
+            aes_key: "key123".to_string(),
+            encrypt_type: Some(1),
+        };
+        let j = cdn_media_json(&media);
+        assert_eq!(j["encrypt_query_param"], "param=1");
+        assert_eq!(j["aes_key"], "key123");
+        assert_eq!(j["encrypt_type"], 1);
+    }
+
+    #[test]
+    fn cdn_media_json_without_encrypt_type() {
+        let media = CDNMedia {
+            encrypt_query_param: "p".to_string(),
+            aes_key: "k".to_string(),
+            encrypt_type: None,
+        };
+        let j = cdn_media_json(&media);
+        assert!(j.get("encrypt_type").is_none());
     }
 }
