@@ -42,6 +42,7 @@ class CDNMedia:
     encrypt_query_param: str
     aes_key: str
     encrypt_type: int | None = None
+    full_url: str | None = None
 
 
 @dataclass

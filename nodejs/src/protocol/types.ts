@@ -3,9 +3,26 @@
 // These are internal; the public API exposes friendlier abstractions.
 // ═══════════════════════════════════════════════════════════════════════
 
+import { readFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
 export const DEFAULT_BASE_URL = 'https://ilinkai.weixin.qq.com'
 export const CDN_BASE_URL = 'https://novac2c.cdn.weixin.qq.com/c2c'
-export const CHANNEL_VERSION = '2.0.0'
+
+/** Read version from package.json for channel_version in base_info. */
+function readVersionFromPackageJson(): string {
+  try {
+    const dir = dirname(fileURLToPath(import.meta.url))
+    const pkgPath = resolve(dir, '..', '..', 'package.json')
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'))
+    return pkg.version ?? '2.0.0'
+  } catch {
+    return '2.0.0'
+  }
+}
+
+export const CHANNEL_VERSION = readVersionFromPackageJson()
 
 // ── Enums ──────────────────────────────────────────────────────────────
 
@@ -45,6 +62,8 @@ export interface CDNMedia {
   encrypt_query_param: string
   aes_key: string
   encrypt_type?: 0 | 1
+  /** Complete download URL returned by server; when set, use directly instead of building from encrypt_query_param. */
+  full_url?: string
 }
 
 export interface TextItem {
@@ -171,11 +190,13 @@ export interface QrCodeResponse {
 }
 
 export interface QrStatusResponse {
-  status: 'wait' | 'scaned' | 'confirmed' | 'expired'
+  status: 'wait' | 'scaned' | 'confirmed' | 'expired' | 'scaned_but_redirect'
   bot_token?: string
   ilink_bot_id?: string
   ilink_user_id?: string
   baseurl?: string
+  /** New host to redirect polling to when status is 'scaned_but_redirect'. */
+  redirect_host?: string
 }
 
 export interface GetUploadUrlRequest {
@@ -196,4 +217,6 @@ export interface GetUploadUrlRequest {
 export interface GetUploadUrlResponse {
   upload_param: string
   thumb_upload_param?: string
+  /** Complete upload URL returned by server; when set, use directly instead of building from upload_param. */
+  upload_full_url?: string
 }

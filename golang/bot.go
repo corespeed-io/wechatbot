@@ -566,7 +566,7 @@ func categorizeByExtension(filename string) string {
 
 func (b *Bot) sendText(ctx context.Context, userID, text, contextToken string) error {
 	creds := b.getCreds()
-	chunks := chunkText(text, 2000)
+	chunks := chunkText(text, 4000)
 	for _, chunk := range chunks {
 		msg := protocol.BuildTextMessage(userID, contextToken, chunk)
 		if err := b.client.SendMessage(ctx, creds.BaseURL, creds.Token, msg); err != nil {

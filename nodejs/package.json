@@ -1,6 +1,6 @@
 {
   "name": "@wechatbot/wechatbot",
-  "version": "2.0.1",
+  "version": "2.1.0",
   "description": "WeChat iLink Bot SDK — modular, extensible, production-grade",
   "type": "module",
   "exports": {

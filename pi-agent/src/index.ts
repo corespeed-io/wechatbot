@@ -154,15 +154,15 @@ Key behaviors:
       }
     }
 
-    // Always force login — ensures this pi instance takes over the session,
-    // kicking out any other pi/bot instance using the same WeChat account.
+    // Try stored credentials first; only force QR scan if none exist.
+    // This avoids requiring a new QR scan on every service restart (issue #40).
     bot = new WeChatBot({ storage: 'file', logLevel: 'warn' })
 
-    ctx.ui.setStatus('wechat', '⏳ Waiting for QR scan…')
+    ctx.ui.setStatus('wechat', '⏳ Connecting…')
 
     try {
       const creds = await bot.login({
-        force: true,
+        force: false,
         callbacks: {
           onQrUrl: (url) => {
             qrTerminal.generate(url, { small: true }, (qr: string) => {

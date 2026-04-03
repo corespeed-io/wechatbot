@@ -1,8 +1,10 @@
 use serde::{Deserialize, Serialize};
+use serde_repr::{Serialize_repr, Deserialize_repr};
 use std::time::SystemTime;
 
 /// Message sender type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// Uses serde_repr for integer (de)serialization: JSON `1` ↔ `MessageType::User`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize_repr, Deserialize_repr)]
 #[repr(i32)]
 pub enum MessageType {
     User = 1,
@@ -10,7 +12,7 @@ pub enum MessageType {
 }
 
 /// Message delivery state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize_repr, Deserialize_repr)]
 #[repr(i32)]
 pub enum MessageState {
     New = 0,
@@ -19,7 +21,7 @@ pub enum MessageState {
 }
 
 /// Content type of a message item.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize_repr, Deserialize_repr)]
 #[repr(i32)]
 pub enum MessageItemType {
     Text = 1,
@@ -46,6 +48,9 @@ pub struct CDNMedia {
     pub aes_key: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub encrypt_type: Option<i32>,
+    /// Complete download URL returned by server; when set, use directly.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub full_url: Option<String>,
 }
 
 /// Text content.
@@ -338,6 +343,7 @@ mod tests {
             encrypt_query_param: "param=abc".to_string(),
             aes_key: "key123".to_string(),
             encrypt_type: Some(1),
+            full_url: None,
         };
         let json = serde_json::to_string(&media).unwrap();
         let decoded: CDNMedia = serde_json::from_str(&json).unwrap();

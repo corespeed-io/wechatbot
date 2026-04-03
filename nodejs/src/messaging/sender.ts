@@ -4,7 +4,7 @@ import type { ILinkApi } from '../protocol/api.js'
 import type { SendMessageRequest, WireMessageItem } from '../protocol/types.js'
 import type { ContextStore } from './context.js'
 
-const MAX_TEXT_LENGTH = 2_000
+const MAX_TEXT_LENGTH = 4_000
 
 /**
  * Message sending service.

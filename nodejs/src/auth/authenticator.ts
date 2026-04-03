@@ -8,6 +8,10 @@ import { STORAGE_KEYS } from '../storage/interface.js'
 import type { Credentials, QrLoginCallbacks } from './types.js'
 
 const QR_POLL_INTERVAL_MS = 2_000
+/** Maximum number of times to refresh the QR code before giving up. */
+const MAX_QR_REFRESH_COUNT = 3
+/** Fixed API base URL for QR code requests (matches npm package). */
+const FIXED_QR_BASE_URL = 'https://ilinkai.weixin.qq.com'
 
 /**
  * Handles the entire QR login flow with credential persistence.
@@ -67,11 +71,21 @@ export class Authenticator {
 
   /**
    * Execute the QR code scanning login flow.
+   * - Uses fixed base URL for QR requests (consistent with npm package)
+   * - Handles `scaned_but_redirect` for IDC redirect
+   * - Limits QR refreshes to MAX_QR_REFRESH_COUNT
    */
   private async qrLogin(baseUrl: string, callbacks?: QrLoginCallbacks): Promise<Credentials> {
+    let qrRefreshCount = 0
+
     for (;;) {
-      this.logger.info('Requesting QR code...')
-      const qr = await this.api.getQrCode(baseUrl)
+      qrRefreshCount++
+      if (qrRefreshCount > MAX_QR_REFRESH_COUNT) {
+        throw new AuthError(`QR code expired ${MAX_QR_REFRESH_COUNT} times — login aborted`)
+      }
+
+      this.logger.info(`Requesting QR code... (${qrRefreshCount}/${MAX_QR_REFRESH_COUNT})`)
+      const qr = await this.api.getQrCode(FIXED_QR_BASE_URL)
 
       // Pass QR URL to developer's callback — display is their responsibility
       if (callbacks?.onQrUrl) {
@@ -81,9 +95,11 @@ export class Authenticator {
       }
 
       let lastStatus: string | undefined
+      // Current polling URL; may be updated on IDC redirect
+      let currentPollBaseUrl = FIXED_QR_BASE_URL
 
       for (;;) {
-        const status = await this.api.pollQrStatus(baseUrl, qr.qrcode)
+        const status = await this.api.pollQrStatus(currentPollBaseUrl, qr.qrcode)
 
         if (status.status !== lastStatus) {
           lastStatus = status.status
@@ -119,6 +135,18 @@ export class Authenticator {
           })
 
           return credentials
+        }
+
+        // IDC redirect: switch polling host
+        if (status.status === 'scaned_but_redirect') {
+          if (status.redirect_host) {
+            currentPollBaseUrl = `https://${status.redirect_host}`
+            this.logger.info(`IDC redirect, switching polling host to ${status.redirect_host}`)
+          } else {
+            this.logger.warn('Received scaned_but_redirect but redirect_host is missing')
+          }
+          await delay(QR_POLL_INTERVAL_MS)
+          continue
         }
 
         if (status.status === 'expired') {

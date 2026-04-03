@@ -77,8 +77,14 @@ type LoginOptions struct {
 	OnExpired func()
 }
 
+const (
+	maxQRRefreshCount = 3
+	fixedQRBaseURL    = "https://ilinkai.weixin.qq.com"
+)
+
 // Login performs QR code login, returning credentials.
 // If stored credentials exist and Force is false, returns them directly.
+// Handles IDC redirect (scaned_but_redirect) and limits QR refreshes.
 func Login(ctx context.Context, client *protocol.Client, opts LoginOptions) (*Credentials, error) {
 	baseURL := opts.BaseURL
 	if baseURL == "" {
@@ -92,8 +98,14 @@ func Login(ctx context.Context, client *protocol.Client, opts LoginOptions) (*Cr
 		}
 	}
 
+	qrRefreshCount := 0
 	for {
-		qr, err := client.GetQRCode(ctx, baseURL)
+		qrRefreshCount++
+		if qrRefreshCount > maxQRRefreshCount {
+			return nil, fmt.Errorf("QR code expired %d times — login aborted", maxQRRefreshCount)
+		}
+
+		qr, err := client.GetQRCode(ctx, fixedQRBaseURL)
 		if err != nil {
 			return nil, fmt.Errorf("get QR code: %w", err)
 		}
@@ -105,8 +117,9 @@ func Login(ctx context.Context, client *protocol.Client, opts LoginOptions) (*Cr
 		}
 
 		lastStatus := ""
+		currentPollBaseURL := fixedQRBaseURL
 		for {
-			status, err := client.PollQRStatus(ctx, baseURL, qr.QRCode)
+			status, err := client.PollQRStatus(ctx, currentPollBaseURL, qr.QRCode)
 			if err != nil {
 				return nil, fmt.Errorf("poll QR status: %w", err)
 			}
@@ -150,6 +163,16 @@ func Login(ctx context.Context, client *protocol.Client, opts LoginOptions) (*Cr
 					fmt.Fprintf(os.Stderr, "[wechatbot] Warning: could not save credentials: %v\n", err)
 				}
 				return creds, nil
+			}
+
+			// Handle IDC redirect
+			if status.Status == "scaned_but_redirect" {
+				if status.RedirectHost != "" {
+					currentPollBaseURL = "https://" + status.RedirectHost
+					fmt.Fprintf(os.Stderr, "[wechatbot] IDC redirect → %s\n", status.RedirectHost)
+				}
+				time.Sleep(2 * time.Second)
+				continue
 			}
 
 			if status.Status == "expired" {

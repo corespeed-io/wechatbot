@@ -17,6 +17,8 @@ from .types import Credentials
 DEFAULT_CRED_DIR = Path.home() / ".wechatbot"
 DEFAULT_CRED_PATH = DEFAULT_CRED_DIR / "credentials.json"
 QR_POLL_INTERVAL = 2.0
+MAX_QR_REFRESH_COUNT = 3
+FIXED_QR_BASE_URL = "https://ilinkai.weixin.qq.com"
 
 
 async def load_credentials(path: Path | None = None) -> Credentials | None:
@@ -71,8 +73,15 @@ async def login(
         if stored:
             return stored
 
+    qr_refresh_count = 0
     while True:
-        qr = await api.get_qr_code(base_url)
+        qr_refresh_count += 1
+        if qr_refresh_count > MAX_QR_REFRESH_COUNT:
+            raise AuthError(
+                f"QR code expired {MAX_QR_REFRESH_COUNT} times — login aborted"
+            )
+
+        qr = await api.get_qr_code(FIXED_QR_BASE_URL)
         qr_url = qr["qrcode_img_content"]
 
         if on_qr_url:
@@ -81,8 +90,9 @@ async def login(
             print(f"[wechatbot] Scan this URL in WeChat: {qr_url}", file=sys.stderr)
 
         last_status = ""
+        current_poll_base_url = FIXED_QR_BASE_URL
         while True:
-            status = await api.poll_qr_status(base_url, qr["qrcode"])
+            status = await api.poll_qr_status(current_poll_base_url, qr["qrcode"])
             current = status["status"]
 
             if current != last_status:
@@ -118,6 +128,18 @@ async def login(
                 )
                 await save_credentials(creds, cred_path)
                 return creds
+
+            # Handle IDC redirect
+            if current == "scaned_but_redirect":
+                redirect_host = status.get("redirect_host")
+                if redirect_host:
+                    current_poll_base_url = f"https://{redirect_host}"
+                    print(
+                        f"[wechatbot] IDC redirect → {redirect_host}",
+                        file=sys.stderr,
+                    )
+                await asyncio.sleep(QR_POLL_INTERVAL)
+                continue
 
             if current == "expired":
                 break

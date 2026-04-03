@@ -71,6 +71,11 @@ impl WeChatBot {
         }
     }
 
+    /// Maximum number of QR code refresh attempts before giving up.
+    const MAX_QR_REFRESH: u32 = 3;
+    /// Fixed API base URL for QR code requests.
+    const FIXED_QR_BASE_URL: &'static str = "https://ilinkai.weixin.qq.com";
+
     /// Login via QR code. Returns credentials on success.
     pub async fn login(&self, force: bool) -> Result<Credentials> {
         let base_url = self.base_url.read().await.clone();
@@ -85,8 +90,16 @@ impl WeChatBot {
         }
 
         // QR code login flow
+        let mut qr_refresh_count = 0u32;
         loop {
-            let qr = self.client.get_qr_code(&base_url).await?;
+            qr_refresh_count += 1;
+            if qr_refresh_count > Self::MAX_QR_REFRESH {
+                return Err(WeChatBotError::Auth(
+                    format!("QR code expired {} times — login aborted", Self::MAX_QR_REFRESH),
+                ));
+            }
+
+            let qr = self.client.get_qr_code(Self::FIXED_QR_BASE_URL).await?;
 
             if let Some(ref cb) = self.on_qr_url {
                 cb(&qr.qrcode_img_content);
@@ -95,8 +108,9 @@ impl WeChatBot {
             }
 
             let mut last_status = String::new();
+            let mut current_poll_base_url = Self::FIXED_QR_BASE_URL.to_string();
             loop {
-                let status = self.client.poll_qr_status(&base_url, &qr.qrcode).await?;
+                let status = self.client.poll_qr_status(&current_poll_base_url, &qr.qrcode).await?;
 
                 if status.status != last_status {
                     last_status = status.status.clone();
@@ -123,6 +137,18 @@ impl WeChatBot {
                     *self.credentials.write().await = Some(creds.clone());
                     *self.base_url.write().await = creds.base_url.clone();
                     return Ok(creds);
+                }
+
+                // Handle IDC redirect
+                if status.status == "scaned_but_redirect" {
+                    if let Some(ref host) = status.redirect_host {
+                        current_poll_base_url = format!("https://{}", host);
+                        info!("IDC redirect, switching polling host to {}", host);
+                    } else {
+                        warn!("Received scaned_but_redirect but redirect_host is missing");
+                    }
+                    sleep(Duration::from_secs(2)).await;
+                    continue;
                 }
 
                 if status.status == "expired" {
@@ -402,57 +428,34 @@ impl WeChatBot {
 
         let raw_md5 = hex::encode(Md5::digest(data));
 
-        let params = json!({
-            "filekey": filekey,
-            "media_type": media_type,
-            "to_user_id": user_id,
-            "rawsize": data.len(),
-            "rawfilemd5": raw_md5,
-            "filesize": ciphertext.len(),
-            "no_need_thumb": true,
-            "aeskey": crypto::encode_aes_key_hex(&aes_key),
-        });
+        let params = protocol::GetUploadUrlParams {
+            filekey: filekey.clone(),
+            media_type,
+            to_user_id: user_id.to_string(),
+            rawsize: data.len(),
+            rawfilemd5: raw_md5,
+            filesize: ciphertext.len(),
+            no_need_thumb: true,
+            aeskey: crypto::encode_aes_key_hex(&aes_key),
+        };
 
         let upload_resp = self.client.get_upload_url(base_url, token, &params).await?;
         let upload_param = upload_resp.upload_param.ok_or_else(|| {
             WeChatBotError::Media("getuploadurl did not return upload_param".into())
         })?;
 
-        let upload_url = format!(
-            "{}/upload?encrypted_query_param={}&filekey={}",
-            protocol::CDN_BASE_URL,
-            urlencoding::encode(&upload_param),
-            urlencoding::encode(&filekey),
-        );
+        let upload_url = protocol::build_cdn_upload_url(protocol::CDN_BASE_URL, &upload_param, &filekey);
 
         let encrypted_file_size = ciphertext.len();
 
-        let resp = reqwest::Client::new()
-            .post(&upload_url)
-            .header("Content-Type", "application/octet-stream")
-            .timeout(Duration::from_secs(60))
-            .body(ciphertext)
-            .send()
-            .await?;
-
-        if !resp.status().is_success() {
-            let err_msg = resp.headers().get("x-error-message")
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or("upload failed")
-                .to_string();
-            return Err(WeChatBotError::Media(format!("CDN upload failed: {}", err_msg)));
-        }
-
-        let encrypt_query_param = resp.headers().get("x-encrypted-param")
-            .and_then(|v| v.to_str().ok())
-            .ok_or_else(|| WeChatBotError::Media("x-encrypted-param header missing".into()))?
-            .to_string();
+        let encrypt_query_param = self.client.upload_to_cdn(&upload_url, &ciphertext).await?;
 
         Ok(UploadResult {
             media: CDNMedia {
                 encrypt_query_param,
                 aes_key: crypto::encode_aes_key_base64(&aes_key),
                 encrypt_type: Some(1),
+                full_url: None,
             },
             aes_key,
             encrypted_file_size,
@@ -463,7 +466,7 @@ impl WeChatBot {
 
     async fn send_text(&self, user_id: &str, text: &str, context_token: &str) -> Result<()> {
         let (base_url, token) = self.get_auth().await?;
-        for chunk in chunk_text(text, 2000) {
+        for chunk in chunk_text(text, 4000) {
             let msg = protocol::build_text_message(user_id, context_token, &chunk);
             self.client.send_message(&base_url, &token, &msg).await?;
         }
@@ -1000,6 +1003,7 @@ mod tests {
             encrypt_query_param: "param=1".to_string(),
             aes_key: "key123".to_string(),
             encrypt_type: Some(1),
+            full_url: None,
         };
         let j = cdn_media_json(&media);
         assert_eq!(j["encrypt_query_param"], "param=1");
@@ -1013,6 +1017,7 @@ mod tests {
             encrypt_query_param: "p".to_string(),
             aes_key: "k".to_string(),
             encrypt_type: None,
+            full_url: None,
         };
         let j = cdn_media_json(&media);
         assert!(j.get("encrypt_type").is_none());

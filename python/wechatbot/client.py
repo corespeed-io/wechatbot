@@ -445,17 +445,16 @@ class WeChatBot:
         raw_md5 = hashlib.md5(data).hexdigest()
 
         upload_info = await self._api.get_upload_url(
-            creds.base_url, creds.token,
-            {
-                "filekey": filekey,
-                "media_type": media_type,
-                "to_user_id": user_id,
-                "rawsize": len(data),
-                "rawfilemd5": raw_md5,
-                "filesize": len(ciphertext),
-                "no_need_thumb": True,
-                "aeskey": encode_aes_key_hex(aes_key),
-            },
+            creds.base_url,
+            creds.token,
+            filekey=filekey,
+            media_type=media_type,
+            to_user_id=user_id,
+            rawsize=len(data),
+            rawfilemd5=raw_md5,
+            filesize=len(ciphertext),
+            no_need_thumb=True,
+            aeskey=encode_aes_key_hex(aes_key),
         )
 
         upload_param = upload_info.get("upload_param")
@@ -499,7 +498,7 @@ class WeChatBot:
         if not text:
             raise ValueError("Message text cannot be empty")
         creds = self._require_creds()
-        for chunk in _chunk_text(text, 2000):
+        for chunk in _chunk_text(text, 4000):
             msg = self._api.build_text_message(user_id, context_token, chunk)
             await self._api.send_message(creds.base_url, creds.token, msg)
 
@@ -683,4 +682,5 @@ def _parse_cdn_media(data: dict[str, Any] | None) -> CDNMedia | None:
         encrypt_query_param=data.get("encrypt_query_param", ""),
         aes_key=data.get("aes_key", ""),
         encrypt_type=data.get("encrypt_type"),
+        full_url=data.get("full_url"),
     )

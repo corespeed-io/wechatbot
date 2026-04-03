@@ -22,7 +22,9 @@ export class MediaDownloader {
    * @param aeskeyOverride - Optional direct hex aeskey (from image_item.aeskey)
    */
   async download(media: CDNMedia, aeskeyOverride?: string): Promise<Buffer> {
-    const downloadUrl = `${this.cdnBaseUrl}/download?encrypted_query_param=${encodeURIComponent(media.encrypt_query_param)}`
+    // Prefer server-provided full_url; fall back to building from encrypt_query_param
+    const downloadUrl = media.full_url?.trim()
+      || `${this.cdnBaseUrl}/download?encrypted_query_param=${encodeURIComponent(media.encrypt_query_param)}`
 
     this.logger.debug('Downloading from CDN')
 

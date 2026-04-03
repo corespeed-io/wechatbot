@@ -54,6 +54,8 @@ type CDNMedia struct {
 	EncryptQueryParam string `json:"encrypt_query_param"`
 	AESKey            string `json:"aes_key"`
 	EncryptType       int    `json:"encrypt_type,omitempty"`
+	// FullURL is the complete download URL returned by server; when set, use directly.
+	FullURL           string `json:"full_url,omitempty"`
 }
 
 // TextItem holds text content.

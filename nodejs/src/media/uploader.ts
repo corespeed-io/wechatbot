@@ -11,6 +11,9 @@ import {
   generateAesKey,
 } from './crypto.js'
 
+/** Maximum retry attempts for CDN upload. */
+const UPLOAD_MAX_RETRIES = 3
+
 export interface UploadResult {
   /** CDNMedia reference to include in sendmessage */
   media: CDNMedia
@@ -32,6 +35,7 @@ export interface UploadOptions {
 /**
  * Handles file encryption and CDN upload.
  * Implements the full upload pipeline: getuploadurl → encrypt → CDN POST.
+ * Retries CDN upload up to 3 times on server errors; client errors (4xx) abort immediately.
  */
 export class MediaUploader {
   private readonly logger: Logger
@@ -75,30 +79,67 @@ export class MediaUploader {
       aeskey: encodeAesKeyHex(aesKey),
     })
 
-    if (!uploadParams.upload_param) {
-      throw new MediaError('getuploadurl did not return upload_param')
+    // Prefer upload_full_url; fall back to building URL from upload_param
+    const uploadFullUrl = uploadParams.upload_full_url?.trim()
+    if (!uploadFullUrl && !uploadParams.upload_param) {
+      throw new MediaError('getuploadurl returned no upload URL (need upload_full_url or upload_param)')
     }
 
     this.logger.debug('Got upload params', { filekey })
 
-    // 3. Upload to CDN
-    const uploadUrl = `${this.cdnBaseUrl}/upload?encrypted_query_param=${encodeURIComponent(uploadParams.upload_param)}&filekey=${encodeURIComponent(filekey)}`
+    // 3. Upload to CDN with retry
+    const uploadUrl = uploadFullUrl
+      || `${this.cdnBaseUrl}/upload?encrypted_query_param=${encodeURIComponent(uploadParams.upload_param)}&filekey=${encodeURIComponent(filekey)}`
 
-    const response = await fetch(uploadUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/octet-stream' },
-      body: ciphertext as unknown as BodyInit,
-      signal: AbortSignal.timeout(60_000),
-    })
+    let encryptQueryParam: string | undefined
+    let lastError: unknown
 
-    if (!response.ok) {
-      const errorMsg = response.headers.get('x-error-message') ?? `HTTP ${response.status}`
-      throw new MediaError(`CDN upload failed: ${errorMsg}`)
+    for (let attempt = 1; attempt <= UPLOAD_MAX_RETRIES; attempt++) {
+      try {
+        const response = await fetch(uploadUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/octet-stream' },
+          body: new Uint8Array(ciphertext),
+          signal: AbortSignal.timeout(60_000),
+        })
+
+        if (response.status >= 400 && response.status < 500) {
+          const errMsg = response.headers.get('x-error-message') ?? `HTTP ${response.status}`
+          throw new MediaError(`CDN upload client error ${response.status}: ${errMsg}`)
+        }
+
+        if (!response.ok) {
+          const errMsg = response.headers.get('x-error-message') ?? `HTTP ${response.status}`
+          throw new Error(`CDN upload server error: ${errMsg}`)
+        }
+
+        encryptQueryParam = response.headers.get('x-encrypted-param') ?? undefined
+        if (!encryptQueryParam) {
+          throw new Error('CDN upload response missing x-encrypted-param header')
+        }
+
+        this.logger.debug(`CDN upload success attempt=${attempt}`)
+        break
+      } catch (err) {
+        lastError = err
+        // Client errors (4xx) are definitive — don't retry
+        if (err instanceof MediaError) throw err
+        if (attempt < UPLOAD_MAX_RETRIES) {
+          this.logger.warn(`CDN upload attempt ${attempt} failed, retrying...`, {
+            error: err instanceof Error ? err.message : String(err),
+          })
+        } else {
+          this.logger.error(`CDN upload all ${UPLOAD_MAX_RETRIES} attempts failed`, {
+            error: err instanceof Error ? err.message : String(err),
+          })
+        }
+      }
     }
 
-    const encryptQueryParam = response.headers.get('x-encrypted-param')
     if (!encryptQueryParam) {
-      throw new MediaError('CDN upload succeeded but x-encrypted-param header is missing')
+      throw lastError instanceof Error
+        ? lastError
+        : new MediaError(`CDN upload failed after ${UPLOAD_MAX_RETRIES} attempts`)
     }
 
     this.logger.info('Upload complete', { filekey, mediaType })

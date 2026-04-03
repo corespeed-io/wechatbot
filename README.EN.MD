@@ -15,7 +15,7 @@
 
 [中文文档](README.md)
 
-Connect any agent to WeChat in 5 minutes. Inspired by [openclaw-weixin-cli](https://github.com/nicepkg/openclaw-weixin).
+Connect any agent to WeChat in 5 minutes. Inspired by [openclaw-weixin-cli](https://www.npmjs.com/package/@tencent-weixin/openclaw-weixin).
 
 ## 📦 SDKs
 

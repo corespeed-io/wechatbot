@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { HttpClient } from '../transport/http.js'
-import { buildAuthHeaders } from './headers.js'
+import { buildAuthHeaders, buildCommonHeaders } from './headers.js'
 import {
   CHANNEL_VERSION,
   MessageItemType,
@@ -35,6 +35,7 @@ export class ILinkApi {
     return this.http.apiGet<QrCodeResponse>(
       baseUrl,
       '/ilink/bot/get_bot_qrcode?bot_type=3',
+      buildCommonHeaders(),
     )
   }
 
@@ -42,7 +43,7 @@ export class ILinkApi {
     return this.http.apiGet<QrStatusResponse>(
       baseUrl,
       `/ilink/bot/get_qrcode_status?qrcode=${encodeURIComponent(qrcode)}`,
-      { 'iLink-App-ClientVersion': '1' },
+      buildCommonHeaders(),
     )
   }
 
