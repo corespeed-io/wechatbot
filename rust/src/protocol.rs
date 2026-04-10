@@ -60,6 +60,7 @@ pub struct QrStatusResponse {
 /// Get updates response.
 #[derive(Debug, Deserialize)]
 pub struct GetUpdatesResponse {
+    #[serde(default)]
     pub ret: i32,
     #[serde(default)]
     pub msgs: Vec<WireMessage>,
