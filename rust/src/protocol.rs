@@ -77,6 +77,7 @@ pub struct GetConfigResponse {
 }
 
 /// Low-level iLink API client.
+#[derive(Debug)]
 pub struct ILinkClient {
     http: Client,
 }

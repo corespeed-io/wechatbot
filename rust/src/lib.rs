@@ -26,7 +26,7 @@ pub mod error;
 pub mod protocol;
 pub mod types;
 
-pub use bot::{BotOptions, MessageHandler, SendContent, WeChatBot};
+pub use bot::{BotOptions, MessageHandler, SendContent, WeChatBot, cdn_download, parse_wire_message};
 pub use crypto::{decrypt_aes_ecb, decrypt_aes_ecb as download_decrypt, encode_aes_key_base64, encode_aes_key_hex, encrypt_aes_ecb, generate_aes_key, decode_aes_key};
 pub use error::{Result, WeChatBotError};
 pub use protocol::{build_cdn_upload_url, GetUploadUrlParams, GetUploadUrlResponse};

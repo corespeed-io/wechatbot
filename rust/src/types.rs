@@ -171,7 +171,7 @@ pub struct IncomingMessage {
     pub videos: Vec<VideoContent>,
     pub quoted: Option<QuotedMessage>,
     pub raw: WireMessage,
-    pub(crate) context_token: String,
+    pub context_token: String,
 }
 
 /// Content type of an incoming message.

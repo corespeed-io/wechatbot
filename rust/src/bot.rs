@@ -214,7 +214,7 @@ impl WeChatBot {
     pub async fn download(&self, msg: &IncomingMessage) -> Result<Option<DownloadedMedia>> {
         if let Some(img) = msg.images.first() {
             if let Some(ref media) = img.media {
-                let data = self.cdn_download(media, img.aes_key.as_deref()).await?;
+                let data = cdn_download(media, img.aes_key.as_deref()).await?;
                 return Ok(Some(DownloadedMedia {
                     data, media_type: "image".into(), file_name: None, format: None,
                 }));
@@ -222,7 +222,7 @@ impl WeChatBot {
         }
         if let Some(file) = msg.files.first() {
             if let Some(ref media) = file.media {
-                let data = self.cdn_download(media, None).await?;
+                let data = cdn_download(media, None).await?;
                 return Ok(Some(DownloadedMedia {
                     data, media_type: "file".into(),
                     file_name: Some(file.file_name.clone().unwrap_or_else(|| "file.bin".into())),
@@ -232,7 +232,7 @@ impl WeChatBot {
         }
         if let Some(video) = msg.videos.first() {
             if let Some(ref media) = video.media {
-                let data = self.cdn_download(media, None).await?;
+                let data = cdn_download(media, None).await?;
                 return Ok(Some(DownloadedMedia {
                     data, media_type: "video".into(), file_name: None, format: None,
                 }));
@@ -240,7 +240,7 @@ impl WeChatBot {
         }
         if let Some(voice) = msg.voices.first() {
             if let Some(ref media) = voice.media {
-                let data = self.cdn_download(media, None).await?;
+                let data = cdn_download(media, None).await?;
                 return Ok(Some(DownloadedMedia {
                     data, media_type: "voice".into(), file_name: None, format: Some("silk".into()),
                 }));
@@ -251,7 +251,7 @@ impl WeChatBot {
 
     /// Download and decrypt a raw CDN media reference.
     pub async fn download_raw(&self, media: &CDNMedia, aeskey_override: Option<&str>) -> Result<Vec<u8>> {
-        self.cdn_download(media, aeskey_override).await
+        cdn_download(media, aeskey_override).await
     }
 
     /// Upload data to WeChat CDN without sending a message.
@@ -283,7 +283,7 @@ impl WeChatBot {
 
                     for wire in &updates.msgs {
                         self.remember_context(wire).await;
-                        if let Some(incoming) = parse_message(wire) {
+                        if let Some(incoming) = parse_wire_message(wire) {
                             let handlers = self.handlers.lock().await;
                             for handler in handlers.iter() {
                                 handler(&incoming);
@@ -386,35 +386,6 @@ impl WeChatBot {
         })
     }
 
-    async fn cdn_download(&self, media: &CDNMedia, aeskey_override: Option<&str>) -> Result<Vec<u8>> {
-        let download_url = format!(
-            "{}/download?encrypted_query_param={}",
-            protocol::CDN_BASE_URL,
-            urlencoding::encode(&media.encrypt_query_param)
-        );
-
-        let resp = reqwest::Client::new()
-            .get(&download_url)
-            .timeout(Duration::from_secs(60))
-            .send()
-            .await?;
-
-        if !resp.status().is_success() {
-            return Err(WeChatBotError::Media(format!(
-                "CDN download failed: HTTP {}", resp.status()
-            )));
-        }
-
-        let ciphertext = resp.bytes().await?.to_vec();
-
-        let key_source = aeskey_override.unwrap_or(&media.aes_key);
-        if key_source.is_empty() {
-            return Err(WeChatBotError::Media("no AES key available".into()));
-        }
-
-        let aes_key = crypto::decode_aes_key(key_source)?;
-        crypto::decrypt_aes_ecb(&ciphertext, &aes_key)
-    }
 
     async fn cdn_upload(
         &self, base_url: &str, token: &str, data: &[u8], user_id: &str, media_type: i32,
@@ -553,7 +524,7 @@ fn categorize_by_extension(filename: &str) -> &'static str {
     }
 }
 
-fn parse_message(wire: &WireMessage) -> Option<IncomingMessage> {
+pub fn parse_wire_message(wire: &WireMessage) -> Option<IncomingMessage> {
     if wire.message_type != MessageType::User {
         return None;
     }
@@ -701,6 +672,37 @@ fn chrono_now() -> String {
     format!("{}Z", dur.as_secs())
 }
 
+
+pub async fn cdn_download(media: &CDNMedia, aeskey_override: Option<&str>) -> Result<Vec<u8>> {
+    let download_url = format!(
+        "{}/download?encrypted_query_param={}",
+        protocol::CDN_BASE_URL,
+        urlencoding::encode(&media.encrypt_query_param)
+    );
+
+    let resp = reqwest::Client::new()
+        .get(&download_url)
+        .timeout(Duration::from_secs(60))
+        .send()
+        .await?;
+
+    if !resp.status().is_success() {
+        return Err(WeChatBotError::Media(format!(
+            "CDN download failed: HTTP {}", resp.status()
+        )));
+    }
+
+    let ciphertext = resp.bytes().await?.to_vec();
+
+    let key_source = aeskey_override.unwrap_or(&media.aes_key);
+    if key_source.is_empty() {
+        return Err(WeChatBotError::Media("no AES key available".into()));
+    }
+
+    let aes_key = crypto::decode_aes_key(key_source)?;
+    crypto::decrypt_aes_ecb(&ciphertext, &aes_key)
+}
+    
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -880,7 +882,7 @@ mod tests {
                 image_item: None, voice_item: None, file_item: None, video_item: None, ref_msg: None,
             }],
         };
-        let msg = parse_message(&wire).unwrap();
+        let msg = parse_wire_message(&wire).unwrap();
         assert_eq!(msg.user_id, "user123");
         assert_eq!(msg.text, "hello");
         assert_eq!(msg.content_type, ContentType::Text);
@@ -903,7 +905,7 @@ mod tests {
                 image_item: None, voice_item: None, file_item: None, video_item: None, ref_msg: None,
             }],
         };
-        assert!(parse_message(&wire).is_none());
+        assert!(parse_wire_message(&wire).is_none());
     }
 
     #[test]
@@ -930,7 +932,7 @@ mod tests {
                 voice_item: None, file_item: None, video_item: None, ref_msg: None,
             }],
         };
-        let msg = parse_message(&wire).unwrap();
+        let msg = parse_wire_message(&wire).unwrap();
         assert_eq!(msg.images.len(), 1);
         assert_eq!(msg.images[0].url, Some("http://img.jpg".to_string()));
         assert_eq!(msg.images[0].width, Some(100));
@@ -961,7 +963,7 @@ mod tests {
                 }),
             }],
         };
-        let msg = parse_message(&wire).unwrap();
+        let msg = parse_wire_message(&wire).unwrap();
         let quoted = msg.quoted.as_ref().unwrap();
         assert_eq!(quoted.title, Some("Original".to_string()));
         assert_eq!(quoted.text, Some("original text".to_string()));
