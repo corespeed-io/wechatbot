@@ -7,11 +7,12 @@ use tokio::sync::{Mutex, RwLock};
 use tokio::time::{sleep, Duration};
 use tracing::{error, info, warn};
 
+use crate::cdn::CdnClient;
 use crate::crypto;
 use crate::error::{Result, WeChatBotError};
 use crate::protocol::{self, ILinkClient};
 use crate::types::*;
-use md5::{Md5, Digest};
+use md5::{Digest, Md5};
 use rand::Rng;
 use serde_json::json;
 
@@ -40,6 +41,7 @@ impl Default for BotOptions {
 /// WeChatBot is the main entry point.
 pub struct WeChatBot {
     client: Arc<ILinkClient>,
+    cdn: CdnClient,
     credentials: RwLock<Option<Credentials>>,
     context_tokens: RwLock<HashMap<String, String>>,
     handlers: Mutex<Vec<MessageHandler>>,
@@ -56,6 +58,7 @@ impl WeChatBot {
     pub fn new(opts: BotOptions) -> Self {
         Self {
             client: Arc::new(ILinkClient::new()),
+            cdn: CdnClient::new(),
             credentials: RwLock::new(None),
             context_tokens: RwLock::new(HashMap::new()),
             handlers: Mutex::new(Vec::new()),
@@ -94,9 +97,10 @@ impl WeChatBot {
         loop {
             qr_refresh_count += 1;
             if qr_refresh_count > Self::MAX_QR_REFRESH {
-                return Err(WeChatBotError::Auth(
-                    format!("QR code expired {} times — login aborted", Self::MAX_QR_REFRESH),
-                ));
+                return Err(WeChatBotError::Auth(format!(
+                    "QR code expired {} times — login aborted",
+                    Self::MAX_QR_REFRESH
+                )));
             }
 
             let qr = self.client.get_qr_code(Self::FIXED_QR_BASE_URL).await?;
@@ -110,7 +114,10 @@ impl WeChatBot {
             let mut last_status = String::new();
             let mut current_poll_base_url = Self::FIXED_QR_BASE_URL.to_string();
             loop {
-                let status = self.client.poll_qr_status(&current_poll_base_url, &qr.qrcode).await?;
+                let status = self
+                    .client
+                    .poll_qr_status(&current_poll_base_url, &qr.qrcode)
+                    .await?;
 
                 if status.status != last_status {
                     last_status = status.status.clone();
@@ -123,9 +130,9 @@ impl WeChatBot {
                 }
 
                 if status.status == "confirmed" {
-                    let token = status.bot_token.ok_or_else(|| {
-                        WeChatBotError::Auth("missing bot_token".into())
-                    })?;
+                    let token = status
+                        .bot_token
+                        .ok_or_else(|| WeChatBotError::Auth("missing bot_token".into()))?;
                     let creds = Credentials {
                         token,
                         base_url: status.baseurl.unwrap_or_else(|| base_url.clone()),
@@ -186,9 +193,14 @@ impl WeChatBot {
         let ct = self.context_tokens.read().await.get(user_id).cloned();
         let ct = ct.ok_or_else(|| WeChatBotError::NoContext(user_id.to_string()))?;
         let (base_url, token) = self.get_auth().await?;
-        let config = self.client.get_config(&base_url, &token, user_id, &ct).await?;
+        let config = self
+            .client
+            .get_config(&base_url, &token, user_id, &ct)
+            .await?;
         if let Some(ticket) = config.typing_ticket {
-            self.client.send_typing(&base_url, &token, user_id, &ticket, 1).await?;
+            self.client
+                .send_typing(&base_url, &token, user_id, &ticket, 1)
+                .await?;
         }
         Ok(())
     }
@@ -199,7 +211,8 @@ impl WeChatBot {
             .write()
             .await
             .insert(msg.user_id.clone(), msg.context_token.clone());
-        self.send_content(&msg.user_id, &msg.context_token, content).await
+        self.send_content(&msg.user_id, &msg.context_token, content)
+            .await
     }
 
     /// Send any content type to a user (needs prior context_token).
@@ -214,17 +227,21 @@ impl WeChatBot {
     pub async fn download(&self, msg: &IncomingMessage) -> Result<Option<DownloadedMedia>> {
         if let Some(img) = msg.images.first() {
             if let Some(ref media) = img.media {
-                let data = cdn_download(media, img.aes_key.as_deref()).await?;
+                let data = self.cdn.download(media, img.aes_key.as_deref()).await?;
                 return Ok(Some(DownloadedMedia {
-                    data, media_type: "image".into(), file_name: None, format: None,
+                    data,
+                    media_type: "image".into(),
+                    file_name: None,
+                    format: None,
                 }));
             }
         }
         if let Some(file) = msg.files.first() {
             if let Some(ref media) = file.media {
-                let data = cdn_download(media, None).await?;
+                let data = self.cdn.download(media, None).await?;
                 return Ok(Some(DownloadedMedia {
-                    data, media_type: "file".into(),
+                    data,
+                    media_type: "file".into(),
                     file_name: Some(file.file_name.clone().unwrap_or_else(|| "file.bin".into())),
                     format: None,
                 }));
@@ -232,17 +249,23 @@ impl WeChatBot {
         }
         if let Some(video) = msg.videos.first() {
             if let Some(ref media) = video.media {
-                let data = cdn_download(media, None).await?;
+                let data = self.cdn.download(media, None).await?;
                 return Ok(Some(DownloadedMedia {
-                    data, media_type: "video".into(), file_name: None, format: None,
+                    data,
+                    media_type: "video".into(),
+                    file_name: None,
+                    format: None,
                 }));
             }
         }
         if let Some(voice) = msg.voices.first() {
             if let Some(ref media) = voice.media {
-                let data = cdn_download(media, None).await?;
+                let data = self.cdn.download(media, None).await?;
                 return Ok(Some(DownloadedMedia {
-                    data, media_type: "voice".into(), file_name: None, format: Some("silk".into()),
+                    data,
+                    media_type: "voice".into(),
+                    file_name: None,
+                    format: Some("silk".into()),
                 }));
             }
         }
@@ -250,14 +273,24 @@ impl WeChatBot {
     }
 
     /// Download and decrypt a raw CDN media reference.
-    pub async fn download_raw(&self, media: &CDNMedia, aeskey_override: Option<&str>) -> Result<Vec<u8>> {
-        cdn_download(media, aeskey_override).await
+    pub async fn download_raw(
+        &self,
+        media: &CDNMedia,
+        aeskey_override: Option<&str>,
+    ) -> Result<Vec<u8>> {
+        self.cdn.download(media, aeskey_override).await
     }
 
     /// Upload data to WeChat CDN without sending a message.
-    pub async fn upload(&self, data: &[u8], user_id: &str, media_type: i32) -> Result<UploadResult> {
+    pub async fn upload(
+        &self,
+        data: &[u8],
+        user_id: &str,
+        media_type: i32,
+    ) -> Result<UploadResult> {
         let (base_url, token) = self.get_auth().await?;
-        self.cdn_upload(&base_url, &token, data, user_id, media_type).await
+        self.cdn_upload(&base_url, &token, data, user_id, media_type)
+            .await
     }
 
     /// Start the long-poll loop. Blocks until stopped.
@@ -283,7 +316,7 @@ impl WeChatBot {
 
                     for wire in &updates.msgs {
                         self.remember_context(wire).await;
-                        if let Some(incoming) = parse_wire_message(wire) {
+                        if let Some(incoming) = IncomingMessage::from_wire(wire) {
                             let handlers = self.handlers.lock().await;
                             for handler in handlers.iter() {
                                 handler(&incoming);
@@ -321,14 +354,19 @@ impl WeChatBot {
     // --- internal media ---
 
     fn send_content<'a>(
-        &'a self, user_id: &'a str, context_token: &'a str, content: SendContent,
+        &'a self,
+        user_id: &'a str,
+        context_token: &'a str,
+        content: SendContent,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>> {
         Box::pin(async move {
             let (base_url, token) = self.get_auth().await?;
             match content {
                 SendContent::Text(text) => self.send_text(user_id, &text, context_token).await,
                 SendContent::Image { data, caption } => {
-                    let result = self.cdn_upload(&base_url, &token, &data, user_id, 1).await?;
+                    let result = self
+                        .cdn_upload(&base_url, &token, &data, user_id, 1)
+                        .await?;
                     let mut items = Vec::new();
                     if let Some(cap) = caption {
                         items.push(json!({"type": 1, "text_item": {"text": cap}}));
@@ -341,7 +379,9 @@ impl WeChatBot {
                     self.client.send_message(&base_url, &token, &msg).await
                 }
                 SendContent::Video { data, caption } => {
-                    let result = self.cdn_upload(&base_url, &token, &data, user_id, 2).await?;
+                    let result = self
+                        .cdn_upload(&base_url, &token, &data, user_id, 2)
+                        .await?;
                     let mut items = Vec::new();
                     if let Some(cap) = caption {
                         items.push(json!({"type": 1, "text_item": {"text": cap}}));
@@ -353,25 +393,37 @@ impl WeChatBot {
                     let msg = protocol::build_media_message(user_id, context_token, items);
                     self.client.send_message(&base_url, &token, &msg).await
                 }
-                SendContent::File { data, file_name, caption } => {
+                SendContent::File {
+                    data,
+                    file_name,
+                    caption,
+                } => {
                     let cat = categorize_by_extension(&file_name);
                     match cat {
                         "image" => {
-                            self.send_content(user_id, context_token, SendContent::Image {
-                                data, caption,
-                            }).await
+                            self.send_content(
+                                user_id,
+                                context_token,
+                                SendContent::Image { data, caption },
+                            )
+                            .await
                         }
                         "video" => {
-                            self.send_content(user_id, context_token, SendContent::Video {
-                                data, caption,
-                            }).await
+                            self.send_content(
+                                user_id,
+                                context_token,
+                                SendContent::Video { data, caption },
+                            )
+                            .await
                         }
                         _ => {
                             if let Some(cap) = caption {
                                 self.send_text(user_id, &cap, context_token).await?;
                             }
                             let data_len = data.len();
-                            let result = self.cdn_upload(&base_url, &token, &data, user_id, 3).await?;
+                            let result = self
+                                .cdn_upload(&base_url, &token, &data, user_id, 3)
+                                .await?;
                             let items = vec![json!({"type": 4, "file_item": {
                                 "media": cdn_media_json(&result.media),
                                 "file_name": file_name,
@@ -386,9 +438,13 @@ impl WeChatBot {
         })
     }
 
-
     async fn cdn_upload(
-        &self, base_url: &str, token: &str, data: &[u8], user_id: &str, media_type: i32,
+        &self,
+        base_url: &str,
+        token: &str,
+        data: &[u8],
+        user_id: &str,
+        media_type: i32,
     ) -> Result<UploadResult> {
         let aes_key = crypto::generate_aes_key();
         let ciphertext = crypto::encrypt_aes_ecb(data, &aes_key);
@@ -415,7 +471,8 @@ impl WeChatBot {
             WeChatBotError::Media("getuploadurl did not return upload_param".into())
         })?;
 
-        let upload_url = protocol::build_cdn_upload_url(protocol::CDN_BASE_URL, &upload_param, &filekey);
+        let upload_url =
+            protocol::build_cdn_upload_url(protocol::CDN_BASE_URL, &upload_param, &filekey);
 
         let encrypted_file_size = ciphertext.len();
 
@@ -460,9 +517,9 @@ impl WeChatBot {
 
     async fn get_auth(&self) -> Result<(String, String)> {
         let creds = self.credentials.read().await;
-        let creds = creds.as_ref().ok_or_else(|| {
-            WeChatBotError::Auth("not logged in".into())
-        })?;
+        let creds = creds
+            .as_ref()
+            .ok_or_else(|| WeChatBotError::Auth("not logged in".into()))?;
         Ok((creds.base_url.clone(), creds.token.clone()))
     }
 
@@ -495,9 +552,19 @@ impl WeChatBot {
 /// Content to send via reply_media / send_media.
 pub enum SendContent {
     Text(String),
-    Image { data: Vec<u8>, caption: Option<String> },
-    Video { data: Vec<u8>, caption: Option<String> },
-    File { data: Vec<u8>, file_name: String, caption: Option<String> },
+    Image {
+        data: Vec<u8>,
+        caption: Option<String>,
+    },
+    Video {
+        data: Vec<u8>,
+        caption: Option<String>,
+    },
+    File {
+        data: Vec<u8>,
+        file_name: String,
+        caption: Option<String>,
+    },
 }
 
 fn cdn_media_json(media: &CDNMedia) -> serde_json::Value {
@@ -524,113 +591,6 @@ fn categorize_by_extension(filename: &str) -> &'static str {
     }
 }
 
-pub fn parse_wire_message(wire: &WireMessage) -> Option<IncomingMessage> {
-    if wire.message_type != MessageType::User {
-        return None;
-    }
-
-    let mut msg = IncomingMessage {
-        user_id: wire.from_user_id.clone(),
-        text: extract_text(&wire.item_list),
-        content_type: detect_type(&wire.item_list),
-        timestamp: std::time::UNIX_EPOCH + std::time::Duration::from_millis(wire.create_time_ms as u64),
-        images: Vec::new(),
-        voices: Vec::new(),
-        files: Vec::new(),
-        videos: Vec::new(),
-        quoted: None,
-        raw: wire.clone(),
-        context_token: wire.context_token.clone(),
-    };
-
-    for item in &wire.item_list {
-        if let Some(ref img) = item.image_item {
-            msg.images.push(ImageContent {
-                media: img.media.clone(),
-                thumb_media: img.thumb_media.clone(),
-                aes_key: img.aeskey.clone(),
-                url: img.url.clone(),
-                width: img.thumb_width,
-                height: img.thumb_height,
-            });
-        }
-        if let Some(ref voice) = item.voice_item {
-            msg.voices.push(VoiceContent {
-                media: voice.media.clone(),
-                text: voice.text.clone(),
-                duration_ms: voice.playtime,
-                encode_type: voice.encode_type,
-            });
-        }
-        if let Some(ref file) = item.file_item {
-            msg.files.push(FileContent {
-                media: file.media.clone(),
-                file_name: file.file_name.clone(),
-                md5: file.md5.clone(),
-                size: file.len.as_ref().and_then(|s| s.parse().ok()),
-            });
-        }
-        if let Some(ref video) = item.video_item {
-            msg.videos.push(VideoContent {
-                media: video.media.clone(),
-                thumb_media: video.thumb_media.clone(),
-                duration_ms: video.play_length,
-            });
-        }
-        if let Some(ref refm) = item.ref_msg {
-            msg.quoted = Some(QuotedMessage {
-                title: refm.title.clone(),
-                text: refm
-                    .message_item
-                    .as_ref()
-                    .and_then(|i| i.text_item.as_ref())
-                    .map(|t| t.text.clone()),
-            });
-        }
-    }
-
-    Some(msg)
-}
-
-fn detect_type(items: &[WireMessageItem]) -> ContentType {
-    items.first().map_or(ContentType::Text, |item| match item.item_type {
-        MessageItemType::Image => ContentType::Image,
-        MessageItemType::Voice => ContentType::Voice,
-        MessageItemType::File => ContentType::File,
-        MessageItemType::Video => ContentType::Video,
-        _ => ContentType::Text,
-    })
-}
-
-fn extract_text(items: &[WireMessageItem]) -> String {
-    items
-        .iter()
-        .filter_map(|item| match item.item_type {
-            MessageItemType::Text => item.text_item.as_ref().map(|t| t.text.clone()),
-            MessageItemType::Image => Some(
-                item.image_item
-                    .as_ref()
-                    .and_then(|i| i.url.clone())
-                    .unwrap_or_else(|| "[image]".to_string()),
-            ),
-            MessageItemType::Voice => Some(
-                item.voice_item
-                    .as_ref()
-                    .and_then(|v| v.text.clone())
-                    .unwrap_or_else(|| "[voice]".to_string()),
-            ),
-            MessageItemType::File => Some(
-                item.file_item
-                    .as_ref()
-                    .and_then(|f| f.file_name.clone())
-                    .unwrap_or_else(|| "[file]".to_string()),
-            ),
-            MessageItemType::Video => Some("[video]".to_string()),
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
 fn chunk_text(text: &str, limit: usize) -> Vec<String> {
     if text.len() <= limit {
         return vec![text.to_string()];
@@ -643,11 +603,22 @@ fn chunk_text(text: &str, limit: usize) -> Vec<String> {
             break;
         }
         let window = &remaining[..limit];
-        let cut = window.rfind("\n\n")
+        let cut = window
+            .rfind("\n\n")
             .filter(|&i| i > limit * 3 / 10)
             .map(|i| i + 2)
-            .or_else(|| window.rfind('\n').filter(|&i| i > limit * 3 / 10).map(|i| i + 1))
-            .or_else(|| window.rfind(' ').filter(|&i| i > limit * 3 / 10).map(|i| i + 1))
+            .or_else(|| {
+                window
+                    .rfind('\n')
+                    .filter(|&i| i > limit * 3 / 10)
+                    .map(|i| i + 1)
+            })
+            .or_else(|| {
+                window
+                    .rfind(' ')
+                    .filter(|&i| i > limit * 3 / 10)
+                    .map(|i| i + 1)
+            })
             .unwrap_or(limit);
         chunks.push(remaining[..cut].to_string());
         remaining = &remaining[cut..];
@@ -661,7 +632,10 @@ fn chunk_text(text: &str, limit: usize) -> Vec<String> {
 
 fn default_cred_path() -> String {
     let home = dirs_next::home_dir().unwrap_or_else(|| ".".into());
-    home.join(".wechatbot").join("credentials.json").to_string_lossy().to_string()
+    home.join(".wechatbot")
+        .join("credentials.json")
+        .to_string_lossy()
+        .to_string()
 }
 
 fn chrono_now() -> String {
@@ -672,37 +646,6 @@ fn chrono_now() -> String {
     format!("{}Z", dur.as_secs())
 }
 
-
-pub async fn cdn_download(media: &CDNMedia, aeskey_override: Option<&str>) -> Result<Vec<u8>> {
-    let download_url = format!(
-        "{}/download?encrypted_query_param={}",
-        protocol::CDN_BASE_URL,
-        urlencoding::encode(&media.encrypt_query_param)
-    );
-
-    let resp = reqwest::Client::new()
-        .get(&download_url)
-        .timeout(Duration::from_secs(60))
-        .send()
-        .await?;
-
-    if !resp.status().is_success() {
-        return Err(WeChatBotError::Media(format!(
-            "CDN download failed: HTTP {}", resp.status()
-        )));
-    }
-
-    let ciphertext = resp.bytes().await?.to_vec();
-
-    let key_source = aeskey_override.unwrap_or(&media.aes_key);
-    if key_source.is_empty() {
-        return Err(WeChatBotError::Media("no AES key available".into()));
-    }
-
-    let aes_key = crypto::decode_aes_key(key_source)?;
-    crypto::decrypt_aes_ecb(&ciphertext, &aes_key)
-}
-    
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -738,235 +681,6 @@ mod tests {
         let text = "abcdef";
         let chunks = chunk_text(text, 6);
         assert_eq!(chunks, vec!["abcdef"]);
-    }
-
-    #[test]
-    fn detect_type_text() {
-        let items = vec![WireMessageItem {
-            item_type: MessageItemType::Text,
-            text_item: Some(TextItem { text: "hi".to_string() }),
-            image_item: None, voice_item: None, file_item: None, video_item: None, ref_msg: None,
-        }];
-        assert_eq!(detect_type(&items), ContentType::Text);
-    }
-
-    #[test]
-    fn detect_type_image() {
-        let items = vec![WireMessageItem {
-            item_type: MessageItemType::Image,
-            text_item: None,
-            image_item: Some(ImageItem {
-                media: None, thumb_media: None, aeskey: None,
-                url: Some("http://img".to_string()),
-                mid_size: None, thumb_width: None, thumb_height: None,
-            }),
-            voice_item: None, file_item: None, video_item: None, ref_msg: None,
-        }];
-        assert_eq!(detect_type(&items), ContentType::Image);
-    }
-
-    #[test]
-    fn detect_type_empty() {
-        assert_eq!(detect_type(&[]), ContentType::Text);
-    }
-
-    #[test]
-    fn extract_text_single() {
-        let items = vec![WireMessageItem {
-            item_type: MessageItemType::Text,
-            text_item: Some(TextItem { text: "hello world".to_string() }),
-            image_item: None, voice_item: None, file_item: None, video_item: None, ref_msg: None,
-        }];
-        assert_eq!(extract_text(&items), "hello world");
-    }
-
-    #[test]
-    fn extract_text_multi() {
-        let items = vec![
-            WireMessageItem {
-                item_type: MessageItemType::Text,
-                text_item: Some(TextItem { text: "line1".to_string() }),
-                image_item: None, voice_item: None, file_item: None, video_item: None, ref_msg: None,
-            },
-            WireMessageItem {
-                item_type: MessageItemType::Text,
-                text_item: Some(TextItem { text: "line2".to_string() }),
-                image_item: None, voice_item: None, file_item: None, video_item: None, ref_msg: None,
-            },
-        ];
-        assert_eq!(extract_text(&items), "line1\nline2");
-    }
-
-    #[test]
-    fn extract_text_image_url() {
-        let items = vec![WireMessageItem {
-            item_type: MessageItemType::Image,
-            text_item: None,
-            image_item: Some(ImageItem {
-                media: None, thumb_media: None, aeskey: None,
-                url: Some("http://img.jpg".to_string()),
-                mid_size: None, thumb_width: None, thumb_height: None,
-            }),
-            voice_item: None, file_item: None, video_item: None, ref_msg: None,
-        }];
-        assert_eq!(extract_text(&items), "http://img.jpg");
-    }
-
-    #[test]
-    fn extract_text_image_placeholder() {
-        let items = vec![WireMessageItem {
-            item_type: MessageItemType::Image,
-            text_item: None,
-            image_item: Some(ImageItem {
-                media: None, thumb_media: None, aeskey: None, url: None,
-                mid_size: None, thumb_width: None, thumb_height: None,
-            }),
-            voice_item: None, file_item: None, video_item: None, ref_msg: None,
-        }];
-        assert_eq!(extract_text(&items), "[image]");
-    }
-
-    #[test]
-    fn extract_text_voice_with_text() {
-        let items = vec![WireMessageItem {
-            item_type: MessageItemType::Voice,
-            text_item: None, image_item: None,
-            voice_item: Some(VoiceItem {
-                media: None, encode_type: None,
-                text: Some("hello".to_string()), playtime: None,
-            }),
-            file_item: None, video_item: None, ref_msg: None,
-        }];
-        assert_eq!(extract_text(&items), "hello");
-    }
-
-    #[test]
-    fn extract_text_file_name() {
-        let items = vec![WireMessageItem {
-            item_type: MessageItemType::File,
-            text_item: None, image_item: None, voice_item: None,
-            file_item: Some(FileItem {
-                media: None, file_name: Some("doc.pdf".to_string()), md5: None, len: None,
-            }),
-            video_item: None, ref_msg: None,
-        }];
-        assert_eq!(extract_text(&items), "doc.pdf");
-    }
-
-    #[test]
-    fn extract_text_video() {
-        let items = vec![WireMessageItem {
-            item_type: MessageItemType::Video,
-            text_item: None, image_item: None, voice_item: None, file_item: None,
-            video_item: Some(VideoItem {
-                media: None, video_size: None, play_length: None, thumb_media: None,
-            }),
-            ref_msg: None,
-        }];
-        assert_eq!(extract_text(&items), "[video]");
-    }
-
-    #[test]
-    fn parse_message_user_text() {
-        let wire = WireMessage {
-            from_user_id: "user123".to_string(),
-            to_user_id: "bot456".to_string(),
-            client_id: "c1".to_string(),
-            create_time_ms: 1700000000000,
-            message_type: MessageType::User,
-            message_state: MessageState::Finish,
-            context_token: "ctx-abc".to_string(),
-            item_list: vec![WireMessageItem {
-                item_type: MessageItemType::Text,
-                text_item: Some(TextItem { text: "hello".to_string() }),
-                image_item: None, voice_item: None, file_item: None, video_item: None, ref_msg: None,
-            }],
-        };
-        let msg = parse_wire_message(&wire).unwrap();
-        assert_eq!(msg.user_id, "user123");
-        assert_eq!(msg.text, "hello");
-        assert_eq!(msg.content_type, ContentType::Text);
-        assert_eq!(msg.context_token, "ctx-abc");
-    }
-
-    #[test]
-    fn parse_message_skips_bot() {
-        let wire = WireMessage {
-            from_user_id: "bot456".to_string(),
-            to_user_id: "user123".to_string(),
-            client_id: "c1".to_string(),
-            create_time_ms: 1700000000000,
-            message_type: MessageType::Bot,
-            message_state: MessageState::Finish,
-            context_token: "ctx".to_string(),
-            item_list: vec![WireMessageItem {
-                item_type: MessageItemType::Text,
-                text_item: Some(TextItem { text: "reply".to_string() }),
-                image_item: None, voice_item: None, file_item: None, video_item: None, ref_msg: None,
-            }],
-        };
-        assert!(parse_wire_message(&wire).is_none());
-    }
-
-    #[test]
-    fn parse_message_with_image() {
-        let wire = WireMessage {
-            from_user_id: "user123".to_string(),
-            to_user_id: "bot456".to_string(),
-            client_id: "c1".to_string(),
-            create_time_ms: 1700000000000,
-            message_type: MessageType::User,
-            message_state: MessageState::Finish,
-            context_token: "ctx".to_string(),
-            item_list: vec![WireMessageItem {
-                item_type: MessageItemType::Image,
-                text_item: None,
-                image_item: Some(ImageItem {
-                    media: None, thumb_media: None,
-                    aeskey: Some("key".to_string()),
-                    url: Some("http://img.jpg".to_string()),
-                    mid_size: None,
-                    thumb_width: Some(100),
-                    thumb_height: Some(200),
-                }),
-                voice_item: None, file_item: None, video_item: None, ref_msg: None,
-            }],
-        };
-        let msg = parse_wire_message(&wire).unwrap();
-        assert_eq!(msg.images.len(), 1);
-        assert_eq!(msg.images[0].url, Some("http://img.jpg".to_string()));
-        assert_eq!(msg.images[0].width, Some(100));
-        assert_eq!(msg.images[0].height, Some(200));
-    }
-
-    #[test]
-    fn parse_message_with_quoted() {
-        let wire = WireMessage {
-            from_user_id: "user123".to_string(),
-            to_user_id: "bot456".to_string(),
-            client_id: "c1".to_string(),
-            create_time_ms: 1700000000000,
-            message_type: MessageType::User,
-            message_state: MessageState::Finish,
-            context_token: "ctx".to_string(),
-            item_list: vec![WireMessageItem {
-                item_type: MessageItemType::Text,
-                text_item: Some(TextItem { text: "replying".to_string() }),
-                image_item: None, voice_item: None, file_item: None, video_item: None,
-                ref_msg: Some(RefMessage {
-                    title: Some("Original".to_string()),
-                    message_item: Some(Box::new(WireMessageItem {
-                        item_type: MessageItemType::Text,
-                        text_item: Some(TextItem { text: "original text".to_string() }),
-                        image_item: None, voice_item: None, file_item: None, video_item: None, ref_msg: None,
-                    })),
-                }),
-            }],
-        };
-        let msg = parse_wire_message(&wire).unwrap();
-        let quoted = msg.quoted.as_ref().unwrap();
-        assert_eq!(quoted.title, Some("Original".to_string()));
-        assert_eq!(quoted.text, Some("original text".to_string()));
     }
 
     #[test]

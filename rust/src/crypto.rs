@@ -49,8 +49,8 @@ pub fn encrypted_size(raw_size: usize) -> usize {
 pub fn decode_aes_key(encoded: &str) -> Result<[u8; 16]> {
     // Direct hex (32 chars)
     if encoded.len() == 32 && encoded.chars().all(|c| c.is_ascii_hexdigit()) {
-        let bytes = hex::decode(encoded)
-            .map_err(|e| WeChatBotError::Media(format!("hex decode: {e}")))?;
+        let bytes =
+            hex::decode(encoded).map_err(|e| WeChatBotError::Media(format!("hex decode: {e}")))?;
         return bytes_to_key(&bytes);
     }
 

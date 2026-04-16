@@ -130,11 +130,15 @@ impl ILinkClient {
             "get_updates_buf": cursor,
             "base_info": { "channel_version": CHANNEL_VERSION }
         });
-        let resp = self.api_post(base_url, "/ilink/bot/getupdates", token, &body, 45).await?;
+        let resp = self
+            .api_post(base_url, "/ilink/bot/getupdates", token, &body, 45)
+            .await?;
         let result: GetUpdatesResponse = serde_json::from_value(resp)?;
         if result.ret != 0 {
             let code = result.errcode.unwrap_or(result.ret);
-            let msg = result.errmsg.unwrap_or_else(|| format!("ret={}", result.ret));
+            let msg = result
+                .errmsg
+                .unwrap_or_else(|| format!("ret={}", result.ret));
             return Err(WeChatBotError::Api {
                 message: msg,
                 http_status: 200,
@@ -149,7 +153,8 @@ impl ILinkClient {
             "msg": msg,
             "base_info": { "channel_version": CHANNEL_VERSION }
         });
-        self.api_post(base_url, "/ilink/bot/sendmessage", token, &body, 15).await?;
+        self.api_post(base_url, "/ilink/bot/sendmessage", token, &body, 15)
+            .await?;
         Ok(())
     }
 
@@ -165,7 +170,9 @@ impl ILinkClient {
             "context_token": context_token,
             "base_info": { "channel_version": CHANNEL_VERSION }
         });
-        let resp = self.api_post(base_url, "/ilink/bot/getconfig", token, &body, 15).await?;
+        let resp = self
+            .api_post(base_url, "/ilink/bot/getconfig", token, &body, 15)
+            .await?;
         Ok(serde_json::from_value(resp)?)
     }
 
@@ -183,7 +190,8 @@ impl ILinkClient {
             "status": status,
             "base_info": { "channel_version": CHANNEL_VERSION }
         });
-        self.api_post(base_url, "/ilink/bot/sendtyping", token, &body, 15).await?;
+        self.api_post(base_url, "/ilink/bot/sendtyping", token, &body, 15)
+            .await?;
         Ok(())
     }
 
@@ -224,7 +232,6 @@ impl ILinkClient {
 
         Ok(value)
     }
-
 }
 
 /// Build a media message payload.
@@ -279,22 +286,21 @@ impl ILinkClient {
             "aeskey": params.aeskey,
             "base_info": { "channel_version": CHANNEL_VERSION }
         });
-        let resp = self.api_post(base_url, "/ilink/bot/getuploadurl", token, &body, 15).await?;
+        let resp = self
+            .api_post(base_url, "/ilink/bot/getuploadurl", token, &body, 15)
+            .await?;
         Ok(serde_json::from_value(resp)?)
     }
 
     /// Upload encrypted bytes to CDN with retry (up to 3 attempts).
     /// Returns the download encrypted_query_param from the x-encrypted-param header.
-    pub async fn upload_to_cdn(
-        &self,
-        cdn_url: &str,
-        ciphertext: &[u8],
-    ) -> Result<String> {
+    pub async fn upload_to_cdn(&self, cdn_url: &str, ciphertext: &[u8]) -> Result<String> {
         const MAX_RETRIES: u32 = 3;
         let mut last_err = None;
 
         for attempt in 1..=MAX_RETRIES {
-            match self.http
+            match self
+                .http
                 .post(cdn_url)
                 .header("Content-Type", "application/octet-stream")
                 .body(ciphertext.to_vec())
@@ -304,27 +310,35 @@ impl ILinkClient {
                 Ok(resp) => {
                     let status = resp.status().as_u16();
                     if status >= 400 && status < 500 {
-                        let err_msg = resp.headers()
+                        let err_msg = resp
+                            .headers()
                             .get("x-error-message")
                             .and_then(|v| v.to_str().ok())
                             .unwrap_or("client error")
                             .to_string();
-                        return Err(WeChatBotError::Media(
-                            format!("CDN upload client error {}: {}", status, err_msg),
-                        ));
+                        return Err(WeChatBotError::Media(format!(
+                            "CDN upload client error {}: {}",
+                            status, err_msg
+                        )));
                     }
                     if status != 200 {
-                        let err_msg = resp.headers()
+                        let err_msg = resp
+                            .headers()
                             .get("x-error-message")
                             .and_then(|v| v.to_str().ok())
                             .unwrap_or("server error")
                             .to_string();
-                        last_err = Some(WeChatBotError::Media(
-                            format!("CDN upload server error {}: {}", status, err_msg),
-                        ));
+                        last_err = Some(WeChatBotError::Media(format!(
+                            "CDN upload server error {}: {}",
+                            status, err_msg
+                        )));
                         continue;
                     }
-                    match resp.headers().get("x-encrypted-param").and_then(|v| v.to_str().ok()) {
+                    match resp
+                        .headers()
+                        .get("x-encrypted-param")
+                        .and_then(|v| v.to_str().ok())
+                    {
                         Some(param) => return Ok(param.to_string()),
                         None => {
                             last_err = Some(WeChatBotError::Media(
@@ -335,16 +349,19 @@ impl ILinkClient {
                     }
                 }
                 Err(e) => {
-                    last_err = Some(WeChatBotError::Other(format!("CDN upload network error: {}", e)));
+                    last_err = Some(WeChatBotError::Other(format!(
+                        "CDN upload network error: {}",
+                        e
+                    )));
                     if attempt < MAX_RETRIES {
                         continue;
                     }
                 }
             }
         }
-        Err(last_err.unwrap_or_else(|| WeChatBotError::Media(
-            format!("CDN upload failed after {} attempts", MAX_RETRIES),
-        )))
+        Err(last_err.unwrap_or_else(|| {
+            WeChatBotError::Media(format!("CDN upload failed after {} attempts", MAX_RETRIES))
+        }))
     }
 }
 
