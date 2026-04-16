@@ -3,7 +3,7 @@
 use aes::cipher::{BlockDecrypt, BlockEncrypt, KeyInit};
 use aes::Aes128;
 use base64::Engine;
-use rand::RngCore;
+use rand::Rng;
 
 use crate::error::{Result, WeChatBotError};
 
@@ -36,7 +36,7 @@ pub fn decrypt_aes_ecb(ciphertext: &[u8], key: &[u8; 16]) -> Result<Vec<u8>> {
 /// Generate a random 16-byte AES key.
 pub fn generate_aes_key() -> [u8; 16] {
     let mut key = [0u8; 16];
-    rand::thread_rng().fill_bytes(&mut key);
+    rand::rng().fill_bytes(&mut key);
     key
 }
 

@@ -1,7 +1,7 @@
 //! Raw iLink Bot API HTTP calls.
 
 use base64::Engine;
-use rand::RngCore;
+use rand::Rng;
 use reqwest::Client;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -33,7 +33,7 @@ fn build_client_version() -> String {
 /// Generate the X-WECHAT-UIN header value.
 pub fn random_wechat_uin() -> String {
     let mut buf = [0u8; 4];
-    rand::thread_rng().fill_bytes(&mut buf);
+    rand::rng().fill_bytes(&mut buf);
     let val = u32::from_be_bytes(buf);
     base64::engine::general_purpose::STANDARD.encode(val.to_string())
 }

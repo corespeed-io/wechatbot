@@ -12,7 +12,7 @@ use crate::error::{Result, WeChatBotError};
 use crate::protocol::{self, ILinkClient};
 use crate::types::*;
 use md5::{Md5, Digest};
-use rand::RngCore;
+use rand::Rng;
 use serde_json::json;
 
 /// Message handler callback type.
@@ -423,7 +423,7 @@ impl WeChatBot {
         let ciphertext = crypto::encrypt_aes_ecb(data, &aes_key);
 
         let mut filekey_buf = [0u8; 16];
-        rand::thread_rng().fill_bytes(&mut filekey_buf);
+        rand::rng().fill_bytes(&mut filekey_buf);
         let filekey = hex::encode(filekey_buf);
 
         let raw_md5 = hex::encode(Md5::digest(data));
