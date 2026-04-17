@@ -54,6 +54,6 @@ jobs:
 
       - name: Publish
         if: inputs.dry_run != 'true'
-        run: cargo publish
+        run: cargo publish --allow-dirty
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
