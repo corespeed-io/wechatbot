@@ -1764,7 +1764,7 @@ dependencies = [
 
 [[package]]
 name = "wechatbot"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "aes",
  "base64",
