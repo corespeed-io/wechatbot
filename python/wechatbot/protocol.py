@@ -85,9 +85,10 @@ async def _parse_response(resp: aiohttp.ClientResponse, label: str) -> dict[str,
         )
 
     ret = payload.get("ret")
-    if isinstance(ret, int) and ret != 0:
-        code = payload.get("errcode", ret)
-        msg = payload.get("errmsg") or f"{label} failed (ret={ret})"
+    errcode = payload.get("errcode")
+    if (isinstance(ret, int) and ret != 0) or (isinstance(errcode, int) and errcode != 0):
+        code = errcode if isinstance(errcode, int) and errcode != 0 else (ret or 0)
+        msg = payload.get("errmsg") or f"{label} failed (ret={ret} errcode={errcode})"
         raise ApiError(msg, http_status=resp.status, errcode=code, payload=payload)
 
     return payload

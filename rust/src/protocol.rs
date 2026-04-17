@@ -134,7 +134,7 @@ impl ILinkClient {
             .api_post(base_url, "/ilink/bot/getupdates", token, &body, 45)
             .await?;
         let result: GetUpdatesResponse = serde_json::from_value(resp)?;
-        if result.ret != 0 {
+        if result.ret != 0 || result.errcode.is_some_and(|c| c != 0) {
             let code = result.errcode.unwrap_or(result.ret);
             let msg = result
                 .errmsg

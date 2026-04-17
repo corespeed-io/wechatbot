@@ -137,14 +137,15 @@ export class HttpClient {
       })
     }
 
-    // Check iLink business-level errors (ret !== 0)
-    if (typeof (data as { ret?: number }).ret === 'number' && (data as { ret: number }).ret !== 0) {
-      const ret = (data as { ret: number }).ret
-      const errcode = (data as { errcode?: number }).errcode ?? ret
-      const errmsg = (data as { errmsg?: string }).errmsg ?? `API error ret=${ret}`
+    // Check iLink business-level errors (ret !== 0 or errcode !== 0)
+    const ret = (data as { ret?: number }).ret
+    const errcode = (data as { errcode?: number }).errcode
+    if ((typeof ret === 'number' && ret !== 0) || (typeof errcode === 'number' && errcode !== 0)) {
+      const code = errcode ?? ret ?? 0
+      const errmsg = (data as { errmsg?: string }).errmsg ?? `API error ret=${ret} errcode=${errcode}`
       throw new ApiError(errmsg, {
         httpStatus: response.status,
-        errcode,
+        errcode: code,
         payload: data,
       })
     }

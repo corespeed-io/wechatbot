@@ -175,14 +175,14 @@ func (c *Client) apiPost(ctx context.Context, baseURL, endpoint, token string, b
 		return nil, &APIError{Message: string(raw), HTTPStatus: resp.StatusCode}
 	}
 
-	// Check ret != 0
+	// Check ret != 0 or errcode != 0
 	var check struct {
 		Ret     int    `json:"ret"`
 		ErrCode int    `json:"errcode"`
 		ErrMsg  string `json:"errmsg"`
 	}
 	json.Unmarshal(raw, &check)
-	if check.Ret != 0 {
+	if check.Ret != 0 || check.ErrCode != 0 {
 		code := check.ErrCode
 		if code == 0 {
 			code = check.Ret
