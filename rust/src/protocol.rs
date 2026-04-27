@@ -224,7 +224,11 @@ impl ILinkClient {
 
         if status >= 400 {
             return Err(WeChatBotError::Api {
-                message: value["errmsg"].as_str().unwrap_or(&text).to_string(),
+                message: value["errmsg"]
+                    .as_str()
+                    .or_else(|| value["message"].as_str())
+                    .unwrap_or(&text)
+                    .to_string(),
                 http_status: status,
                 errcode: value["errcode"].as_i64().unwrap_or(0) as i32,
             });
