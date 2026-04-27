@@ -230,6 +230,20 @@ impl ILinkClient {
             });
         }
 
+        if let Some(errcode) = value["errcode"].as_i64() {
+            if errcode != 0 {
+                return Err(WeChatBotError::Api {
+                    message: value["errmsg"]
+                        .as_str()
+                        .or_else(|| value["message"].as_str())
+                        .unwrap_or(&text)
+                        .to_string(),
+                    http_status: status,
+                    errcode: errcode as i32,
+                });
+            }
+        }
+
         Ok(value)
     }
 }
