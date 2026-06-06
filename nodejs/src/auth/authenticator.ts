@@ -10,8 +10,6 @@ import type { Credentials, QrLoginCallbacks } from './types.js'
 const QR_POLL_INTERVAL_MS = 2_000
 /** Maximum number of times to refresh the QR code before giving up. */
 const MAX_QR_REFRESH_COUNT = 3
-/** Fixed API base URL for QR code requests (matches npm package). */
-const FIXED_QR_BASE_URL = 'https://ilinkai.weixin.qq.com'
 
 /**
  * Handles the entire QR login flow with credential persistence.
@@ -71,7 +69,7 @@ export class Authenticator {
 
   /**
    * Execute the QR code scanning login flow.
-   * - Uses fixed base URL for QR requests (consistent with npm package)
+   * - Uses configured base URL for QR requests (supports proxy hubs)
    * - Handles `scaned_but_redirect` for IDC redirect
    * - Limits QR refreshes to MAX_QR_REFRESH_COUNT
    */
@@ -85,7 +83,7 @@ export class Authenticator {
       }
 
       this.logger.info(`Requesting QR code... (${qrRefreshCount}/${MAX_QR_REFRESH_COUNT})`)
-      const qr = await this.api.getQrCode(FIXED_QR_BASE_URL)
+      const qr = await this.api.getQrCode(baseUrl)
 
       // Pass QR URL to developer's callback — display is their responsibility
       if (callbacks?.onQrUrl) {
@@ -96,7 +94,7 @@ export class Authenticator {
 
       let lastStatus: string | undefined
       // Current polling URL; may be updated on IDC redirect
-      let currentPollBaseUrl = FIXED_QR_BASE_URL
+      let currentPollBaseUrl = baseUrl
 
       for (;;) {
         const status = await this.api.pollQrStatus(currentPollBaseUrl, qr.qrcode)
