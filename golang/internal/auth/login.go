@@ -77,10 +77,7 @@ type LoginOptions struct {
 	OnExpired func()
 }
 
-const (
-	maxQRRefreshCount = 3
-	fixedQRBaseURL    = "https://ilinkai.weixin.qq.com"
-)
+const maxQRRefreshCount = 3
 
 // Login performs QR code login, returning credentials.
 // If stored credentials exist and Force is false, returns them directly.
@@ -105,7 +102,7 @@ func Login(ctx context.Context, client *protocol.Client, opts LoginOptions) (*Cr
 			return nil, fmt.Errorf("QR code expired %d times — login aborted", maxQRRefreshCount)
 		}
 
-		qr, err := client.GetQRCode(ctx, fixedQRBaseURL)
+		qr, err := client.GetQRCode(ctx, baseURL)
 		if err != nil {
 			return nil, fmt.Errorf("get QR code: %w", err)
 		}
@@ -117,7 +114,7 @@ func Login(ctx context.Context, client *protocol.Client, opts LoginOptions) (*Cr
 		}
 
 		lastStatus := ""
-		currentPollBaseURL := fixedQRBaseURL
+		currentPollBaseURL := baseURL
 		for {
 			status, err := client.PollQRStatus(ctx, currentPollBaseURL, qr.QRCode)
 			if err != nil {

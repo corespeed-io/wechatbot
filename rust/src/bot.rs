@@ -76,8 +76,6 @@ impl WeChatBot {
 
     /// Maximum number of QR code refresh attempts before giving up.
     const MAX_QR_REFRESH: u32 = 3;
-    /// Fixed API base URL for QR code requests.
-    const FIXED_QR_BASE_URL: &'static str = "https://ilinkai.weixin.qq.com";
 
     /// Login via QR code. Returns credentials on success.
     pub async fn login(&self, force: bool) -> Result<Credentials> {
@@ -103,7 +101,7 @@ impl WeChatBot {
                 )));
             }
 
-            let qr = self.client.get_qr_code(Self::FIXED_QR_BASE_URL).await?;
+            let qr = self.client.get_qr_code(&base_url).await?;
 
             if let Some(ref cb) = self.on_qr_url {
                 cb(&qr.qrcode_img_content);
@@ -112,7 +110,7 @@ impl WeChatBot {
             }
 
             let mut last_status = String::new();
-            let mut current_poll_base_url = Self::FIXED_QR_BASE_URL.to_string();
+            let mut current_poll_base_url = base_url.clone();
             loop {
                 let status = self
                     .client

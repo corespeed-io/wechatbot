@@ -18,7 +18,6 @@ DEFAULT_CRED_DIR = Path.home() / ".wechatbot"
 DEFAULT_CRED_PATH = DEFAULT_CRED_DIR / "credentials.json"
 QR_POLL_INTERVAL = 2.0
 MAX_QR_REFRESH_COUNT = 3
-FIXED_QR_BASE_URL = "https://ilinkai.weixin.qq.com"
 
 
 async def load_credentials(path: Path | None = None) -> Credentials | None:
@@ -81,7 +80,7 @@ async def login(
                 f"QR code expired {MAX_QR_REFRESH_COUNT} times — login aborted"
             )
 
-        qr = await api.get_qr_code(FIXED_QR_BASE_URL)
+        qr = await api.get_qr_code(base_url)
         qr_url = qr["qrcode_img_content"]
 
         if on_qr_url:
@@ -90,7 +89,7 @@ async def login(
             print(f"[wechatbot] Scan this URL in WeChat: {qr_url}", file=sys.stderr)
 
         last_status = ""
-        current_poll_base_url = FIXED_QR_BASE_URL
+        current_poll_base_url = base_url
         while True:
             status = await api.poll_qr_status(current_poll_base_url, qr["qrcode"])
             current = status["status"]
