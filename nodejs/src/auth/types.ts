@@ -13,4 +13,14 @@ export interface QrLoginCallbacks {
   onScanned?: () => void
   /** Called when the QR code has expired and a new one will be requested. */
   onExpired?: () => void
+  /**
+   * Called when the server requires a verification code (`need_verifycode`):
+   * WeChat shows a short numeric code in the scanning user's app that must be
+   * entered to continue. Return the code the user provided (login re-polls with
+   * it immediately). If this callback is not supplied, login throws on
+   * `need_verifycode`.
+   */
+  onNeedVerifyCode?: () => string | Promise<string>
+  /** Called when the verification code was rejected too many times (`verify_code_blocked`). */
+  onVerifyCodeBlocked?: () => void
 }

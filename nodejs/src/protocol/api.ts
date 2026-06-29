@@ -39,12 +39,16 @@ export class ILinkApi {
     )
   }
 
-  async pollQrStatus(baseUrl: string, qrcode: string): Promise<QrStatusResponse> {
-    return this.http.apiGet<QrStatusResponse>(
-      baseUrl,
-      `/ilink/bot/get_qrcode_status?qrcode=${encodeURIComponent(qrcode)}`,
-      buildCommonHeaders(),
-    )
+  async pollQrStatus(
+    baseUrl: string,
+    qrcode: string,
+    verifyCode?: string,
+  ): Promise<QrStatusResponse> {
+    let path = `/ilink/bot/get_qrcode_status?qrcode=${encodeURIComponent(qrcode)}`
+    if (verifyCode) {
+      path += `&verify_code=${encodeURIComponent(verifyCode)}`
+    }
+    return this.http.apiGet<QrStatusResponse>(baseUrl, path, buildCommonHeaders())
   }
 
   // ── Messages ──────────────────────────────────────────────────────────

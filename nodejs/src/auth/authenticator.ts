@@ -97,14 +97,18 @@ export class Authenticator {
       let lastStatus: string | undefined
       // Current polling URL; may be updated on IDC redirect
       let currentPollBaseUrl = FIXED_QR_BASE_URL
+      // Verification code pending submission on the next poll (see need_verifycode).
+      let pendingVerifyCode: string | undefined
 
       for (;;) {
-        const status = await this.api.pollQrStatus(currentPollBaseUrl, qr.qrcode)
+        const status = await this.api.pollQrStatus(currentPollBaseUrl, qr.qrcode, pendingVerifyCode)
 
         if (status.status !== lastStatus) {
           lastStatus = status.status
 
           if (status.status === 'scaned') {
+            // Reaching `scaned` after a code submission means it was accepted.
+            pendingVerifyCode = undefined
             this.logger.info('QR scanned — confirm in WeChat')
             callbacks?.onScanned?.()
           } else if (status.status === 'expired') {
@@ -113,6 +117,26 @@ export class Authenticator {
           } else if (status.status === 'confirmed') {
             this.logger.info('Login confirmed')
           }
+        }
+
+        // Server is challenging with a verification code shown in the scanning
+        // user's WeChat app. Ask the caller for it, then re-poll immediately.
+        if (status.status === 'need_verifycode') {
+          if (!callbacks?.onNeedVerifyCode) {
+            throw new AuthError(
+              'Server requires a verification code (need_verifycode) but no onNeedVerifyCode callback was provided',
+            )
+          }
+          pendingVerifyCode = (await callbacks.onNeedVerifyCode()).trim()
+          // Re-poll immediately with the submitted code (skip the poll delay).
+          continue
+        }
+
+        // Too many wrong codes — the server locked further attempts.
+        if (status.status === 'verify_code_blocked') {
+          pendingVerifyCode = undefined
+          callbacks?.onVerifyCodeBlocked?.()
+          throw new AuthError('Verification code rejected too many times (verify_code_blocked)')
         }
 
         if (status.status === 'confirmed') {
