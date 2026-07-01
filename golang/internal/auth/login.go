@@ -2,11 +2,13 @@
 package auth
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/corespeed-io/wechatbot/golang/internal/protocol"
@@ -75,6 +77,25 @@ type LoginOptions struct {
 	OnQRURL   func(url string)
 	OnScanned func()
 	OnExpired func()
+	// OnVerifyCode is called when the server requires a pairing code (the
+	// digits shown in WeChat on the user's phone). isRetry is true when a
+	// previously submitted code was rejected. Defaults to a stdin prompt.
+	OnVerifyCode func(isRetry bool) (string, error)
+}
+
+// readVerifyCode is the default pairing-code prompt: read a line from stdin.
+func readVerifyCode(isRetry bool) (string, error) {
+	prompt := "Enter the pairing code shown in WeChat on your phone: "
+	if isRetry {
+		prompt = "Code mismatch — enter the pairing code shown in WeChat again: "
+	}
+	fmt.Fprint(os.Stderr, prompt)
+	reader := bufio.NewReader(os.Stdin)
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(line), nil
 }
 
 const (
@@ -123,8 +144,10 @@ func Login(ctx context.Context, client *protocol.Client, opts LoginOptions) (*Cr
 
 		lastStatus := ""
 		currentPollBaseURL := fixedQRBaseURL
+		// Pairing code awaiting server verification (pair-code login flow)
+		pendingVerifyCode := ""
 		for {
-			status, err := client.PollQRStatus(ctx, currentPollBaseURL, qr.QRCode)
+			status, err := client.PollQRStatus(ctx, currentPollBaseURL, qr.QRCode, pendingVerifyCode)
 			if err != nil {
 				return nil, fmt.Errorf("poll QR status: %w", err)
 			}
@@ -133,6 +156,8 @@ func Login(ctx context.Context, client *protocol.Client, opts LoginOptions) (*Cr
 				lastStatus = status.Status
 				switch status.Status {
 				case "scaned":
+					// A pending pairing code that leads back to scaned was accepted
+					pendingVerifyCode = ""
 					if opts.OnScanned != nil {
 						opts.OnScanned()
 					} else {
@@ -168,6 +193,28 @@ func Login(ctx context.Context, client *protocol.Client, opts LoginOptions) (*Cr
 					fmt.Fprintf(os.Stderr, "[wechatbot] Warning: could not save credentials: %v\n", err)
 				}
 				return creds, nil
+			}
+
+			// Pair-code challenge: ask the user for the digits shown in WeChat
+			if status.Status == "need_verifycode" {
+				isRetry := pendingVerifyCode != ""
+				prompt := opts.OnVerifyCode
+				if prompt == nil {
+					prompt = readVerifyCode
+				}
+				code, err := prompt(isRetry)
+				if err != nil {
+					return nil, fmt.Errorf("read pairing code: %w", err)
+				}
+				pendingVerifyCode = code
+				continue // Re-poll immediately with the code attached
+			}
+
+			// Too many wrong pairing codes: server blocked this QR — get a new one
+			if status.Status == "verify_code_blocked" {
+				fmt.Fprintln(os.Stderr, "[wechatbot] Pairing code blocked after repeated mismatches — requesting new QR")
+				pendingVerifyCode = ""
+				break // Outer loop requests a new QR (counts toward refresh limit)
 			}
 
 			// Already bound to this client: reuse existing local credentials

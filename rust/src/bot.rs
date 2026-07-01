@@ -19,6 +19,25 @@ use serde_json::json;
 /// Message handler callback type.
 pub type MessageHandler = Box<dyn Fn(&IncomingMessage) + Send + Sync>;
 
+/// Default pairing-code prompt: read a line from stdin without blocking the runtime.
+async fn read_verify_code_from_stdin(is_retry: bool) -> Result<String> {
+    tokio::task::spawn_blocking(move || -> Result<String> {
+        use std::io::{BufRead, Write};
+        let prompt = if is_retry {
+            "Code mismatch — enter the pairing code shown in WeChat again: "
+        } else {
+            "Enter the pairing code shown in WeChat on your phone: "
+        };
+        eprint!("{}", prompt);
+        std::io::stderr().flush().ok();
+        let mut line = String::new();
+        std::io::stdin().lock().read_line(&mut line)?;
+        Ok(line.trim().to_string())
+    })
+    .await
+    .map_err(|e| WeChatBotError::Auth(format!("pairing code prompt failed: {e}")))?
+}
+
 /// Bot configuration options.
 pub struct BotOptions {
     pub base_url: Option<String>,
@@ -29,6 +48,10 @@ pub struct BotOptions {
     /// `base_info.bot_agent` on every API request (e.g. "MyApp/1.2 (prod)").
     /// Invalid values fall back to `protocol::default_bot_agent()`.
     pub bot_agent: Option<String>,
+    /// Called when the server requires a pairing code (the digits shown in
+    /// WeChat on the user's phone). The argument is true when a previously
+    /// submitted code was rejected. Defaults to a stdin prompt.
+    pub on_verify_code: Option<Box<dyn Fn(bool) -> String + Send + Sync>>,
 }
 
 impl Default for BotOptions {
@@ -39,6 +62,7 @@ impl Default for BotOptions {
             on_qr_url: None,
             on_error: None,
             bot_agent: None,
+            on_verify_code: None,
         }
     }
 }
@@ -56,6 +80,7 @@ pub struct WeChatBot {
     stopped: RwLock<bool>,
     on_qr_url: Option<Box<dyn Fn(&str) + Send + Sync>>,
     on_error: Option<Box<dyn Fn(&WeChatBotError) + Send + Sync>>,
+    on_verify_code: Option<Box<dyn Fn(bool) -> String + Send + Sync>>,
 }
 
 impl WeChatBot {
@@ -76,6 +101,7 @@ impl WeChatBot {
             stopped: RwLock::new(false),
             on_qr_url: opts.on_qr_url,
             on_error: opts.on_error,
+            on_verify_code: opts.on_verify_code,
         }
     }
 
@@ -130,20 +156,49 @@ impl WeChatBot {
 
             let mut last_status = String::new();
             let mut current_poll_base_url = Self::FIXED_QR_BASE_URL.to_string();
+            // Pairing code awaiting server verification (pair-code login flow)
+            let mut pending_verify_code: Option<String> = None;
             loop {
                 let status = self
                     .client
-                    .poll_qr_status(&current_poll_base_url, &qr.qrcode)
+                    .poll_qr_status(
+                        &current_poll_base_url,
+                        &qr.qrcode,
+                        pending_verify_code.as_deref(),
+                    )
                     .await?;
 
                 if status.status != last_status {
                     last_status = status.status.clone();
                     match status.status.as_str() {
-                        "scaned" => info!("QR scanned — confirm in WeChat"),
+                        "scaned" => {
+                            // A pending pairing code that leads back to
+                            // `scaned` was accepted
+                            pending_verify_code = None;
+                            info!("QR scanned — confirm in WeChat");
+                        }
                         "expired" => warn!("QR expired — requesting new one"),
                         "confirmed" => info!("Login confirmed"),
                         _ => {}
                     }
+                }
+
+                // Pair-code challenge: ask the user for the digits shown in WeChat
+                if status.status == "need_verifycode" {
+                    let is_retry = pending_verify_code.is_some();
+                    let code = match self.on_verify_code {
+                        Some(ref cb) => cb(is_retry),
+                        None => read_verify_code_from_stdin(is_retry).await?,
+                    };
+                    pending_verify_code = Some(code);
+                    continue; // Re-poll immediately with the code attached
+                }
+
+                // Too many wrong pairing codes: server blocked this QR — get a new one
+                if status.status == "verify_code_blocked" {
+                    warn!("Pairing code blocked after repeated mismatches — requesting new QR");
+                    pending_verify_code = None;
+                    break; // Outer loop requests a new QR (counts toward refresh limit)
                 }
 
                 if status.status == "confirmed" {

@@ -17,14 +17,19 @@ a duplicate session.
 
 ### Step 2: Poll Status
 ```
-GET /ilink/bot/get_qrcode_status?qrcode=<token>
+GET /ilink/bot/get_qrcode_status?qrcode=<token>[&verify_code=<digits>]
 Headers: { "iLink-App-ClientVersion": "1" }
-→ { status: "wait" | "scaned" | "confirmed" | "expired" | "scaned_but_redirect" | "binded_redirect",
+→ { status: "wait" | "scaned" | "confirmed" | "expired" | "scaned_but_redirect"
+          | "binded_redirect" | "need_verifycode" | "verify_code_blocked",
     bot_token?, ilink_bot_id?, ilink_user_id?, baseurl?, redirect_host? }
 ```
 - `scaned_but_redirect`: switch polling to `https://<redirect_host>` (IDC redirect)
 - `binded_redirect`: the scanned bot is already bound to this client (matched via
   `local_token_list`) — treat as success and reuse existing local credentials
+- `need_verifycode`: pair-code challenge — prompt the user for the digits shown in
+  WeChat on their phone and re-poll with `&verify_code=`. Getting `need_verifycode`
+  again means the code was wrong (re-prompt); getting `scaned` means it was accepted.
+- `verify_code_blocked`: too many wrong codes — this QR is dead, request a new one
 
 ## Common Headers (all POST requests)
 ```

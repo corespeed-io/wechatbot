@@ -146,8 +146,17 @@ class ILinkApi:
             ) as resp:
                 return await _parse_response(resp, "get_bot_qrcode")
 
-    async def poll_qr_status(self, base_url: str, qrcode: str) -> dict[str, Any]:
+    async def poll_qr_status(
+        self, base_url: str, qrcode: str, verify_code: str | None = None
+    ) -> dict[str, Any]:
+        """Poll the QR scan status.
+
+        verify_code submits a pairing code after the server answered
+        need_verifycode (the digits shown in WeChat on the user's phone).
+        """
         url = f"{base_url}/ilink/bot/get_qrcode_status?qrcode={quote(qrcode, safe='')}"
+        if verify_code:
+            url += f"&verify_code={quote(verify_code, safe='')}"
         async with aiohttp.ClientSession() as session:
             async with session.get(
                 url, headers=_common_headers()

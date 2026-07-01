@@ -260,12 +260,24 @@ impl ILinkClient {
         Ok(resp.json().await?)
     }
 
-    pub async fn poll_qr_status(&self, base_url: &str, qrcode: &str) -> Result<QrStatusResponse> {
-        let url = format!(
+    /// Poll the QR scan status.
+    ///
+    /// `verify_code` submits a pairing code after the server answered
+    /// `need_verifycode` (the digits shown in WeChat on the user's phone).
+    pub async fn poll_qr_status(
+        &self,
+        base_url: &str,
+        qrcode: &str,
+        verify_code: Option<&str>,
+    ) -> Result<QrStatusResponse> {
+        let mut url = format!(
             "{}/ilink/bot/get_qrcode_status?qrcode={}",
             base_url,
             urlencoding::encode(qrcode)
         );
+        if let Some(code) = verify_code {
+            url.push_str(&format!("&verify_code={}", urlencoding::encode(code)));
+        }
         let resp = self
             .http
             .get(&url)

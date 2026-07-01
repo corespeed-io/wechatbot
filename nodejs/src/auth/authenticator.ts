@@ -1,3 +1,4 @@
+import { createInterface } from 'node:readline/promises'
 import { setTimeout as delay } from 'node:timers/promises'
 import { AuthError } from '../core/errors.js'
 import type { Logger } from '../logger/types.js'
@@ -102,14 +103,21 @@ export class Authenticator {
       let lastStatus: string | undefined
       // Current polling URL; may be updated on IDC redirect
       let currentPollBaseUrl = FIXED_QR_BASE_URL
+      // Pairing code awaiting server verification (pair-code login flow)
+      let pendingVerifyCode: string | undefined
 
       for (;;) {
-        const status = await this.api.pollQrStatus(currentPollBaseUrl, qr.qrcode)
+        const status = await this.api.pollQrStatus(currentPollBaseUrl, qr.qrcode, pendingVerifyCode)
 
         if (status.status !== lastStatus) {
           lastStatus = status.status
 
           if (status.status === 'scaned') {
+            // A pending pairing code that leads back to `scaned` was accepted
+            if (pendingVerifyCode) {
+              this.logger.info('Pairing code accepted')
+              pendingVerifyCode = undefined
+            }
             this.logger.info('QR scanned — confirm in WeChat')
             callbacks?.onScanned?.()
           } else if (status.status === 'expired') {
@@ -142,6 +150,20 @@ export class Authenticator {
           return credentials
         }
 
+        // Pair-code challenge: ask the user for the digits shown in WeChat
+        if (status.status === 'need_verifycode') {
+          const isRetry = pendingVerifyCode !== undefined
+          pendingVerifyCode = await this.promptVerifyCode(isRetry, callbacks)
+          continue // Re-poll immediately with the code attached
+        }
+
+        // Too many wrong pairing codes: server blocked this QR — request a new one
+        if (status.status === 'verify_code_blocked') {
+          this.logger.warn('Pairing code blocked after repeated mismatches — requesting new QR')
+          pendingVerifyCode = undefined
+          break // Outer loop will request a new QR (counts toward the refresh limit)
+        }
+
         // Already bound to this client: reuse existing local credentials
         if (status.status === 'binded_redirect') {
           if (stored) {
@@ -172,6 +194,29 @@ export class Authenticator {
 
         await delay(QR_POLL_INTERVAL_MS)
       }
+    }
+  }
+
+  /**
+   * Obtain a pairing code from the developer callback, or fall back to a
+   * stdin prompt.
+   */
+  private async promptVerifyCode(
+    isRetry: boolean,
+    callbacks?: QrLoginCallbacks,
+  ): Promise<string> {
+    if (callbacks?.onVerifyCode) {
+      return callbacks.onVerifyCode(isRetry)
+    }
+
+    const prompt = isRetry
+      ? 'Code mismatch — enter the pairing code shown in WeChat again: '
+      : 'Enter the pairing code shown in WeChat on your phone: '
+    const rl = createInterface({ input: process.stdin, output: process.stdout })
+    try {
+      return (await rl.question(prompt)).trim()
+    } finally {
+      rl.close()
     }
   }
 }

@@ -130,7 +130,7 @@ type QRCodeResponse struct {
 
 // QRStatusResponse from get_qrcode_status.
 type QRStatusResponse struct {
-	Status       string `json:"status"` // wait, scaned, confirmed, expired, scaned_but_redirect, binded_redirect
+	Status       string `json:"status"` // wait, scaned, confirmed, expired, scaned_but_redirect, binded_redirect, need_verifycode, verify_code_blocked
 	BotToken     string `json:"bot_token,omitempty"`
 	BotID        string `json:"ilink_bot_id,omitempty"`
 	UserID       string `json:"ilink_user_id,omitempty"`
@@ -182,8 +182,14 @@ func (c *Client) GetQRCode(ctx context.Context, baseURL string, localTokenList [
 }
 
 // PollQRStatus polls the QR code scan status.
-func (c *Client) PollQRStatus(ctx context.Context, baseURL, qrcode string) (*QRStatusResponse, error) {
+//
+// verifyCode submits a pairing code after the server answered need_verifycode
+// (the digits shown in WeChat on the user's phone). Pass "" when none.
+func (c *Client) PollQRStatus(ctx context.Context, baseURL, qrcode, verifyCode string) (*QRStatusResponse, error) {
 	u := baseURL + "/ilink/bot/get_qrcode_status?qrcode=" + url.QueryEscape(qrcode)
+	if verifyCode != "" {
+		u += "&verify_code=" + url.QueryEscape(verifyCode)
+	}
 	req, _ := http.NewRequestWithContext(ctx, "GET", u, nil)
 	for k, v := range CommonHeaders() {
 		req.Header[k] = v

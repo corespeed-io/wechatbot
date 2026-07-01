@@ -35,6 +35,10 @@ type Options struct {
 	OnScanned    func()
 	OnExpired    func()
 	OnError      func(err error)
+	// OnVerifyCode is called when the server requires a pairing code (the
+	// digits shown in WeChat on the user's phone). isRetry is true when a
+	// previously submitted code was rejected. Defaults to a stdin prompt.
+	OnVerifyCode func(isRetry bool) (string, error)
 	// BotAgent identifies the app driving this bot, sent as base_info.bot_agent
 	// on every API request (e.g. "MyApp/1.2 (prod)"). Invalid values fall back
 	// to protocol.DefaultBotAgent.
@@ -77,9 +81,10 @@ func (b *Bot) Login(ctx context.Context, force bool) (*Credentials, error) {
 		BaseURL:   b.opts.BaseURL,
 		CredPath:  b.opts.CredPath,
 		Force:     force,
-		OnQRURL:   b.opts.OnQRURL,
-		OnScanned: b.opts.OnScanned,
-		OnExpired: b.opts.OnExpired,
+		OnQRURL:      b.opts.OnQRURL,
+		OnScanned:    b.opts.OnScanned,
+		OnExpired:    b.opts.OnExpired,
+		OnVerifyCode: b.opts.OnVerifyCode,
 	})
 	if err != nil {
 		return nil, err

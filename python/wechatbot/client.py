@@ -77,6 +77,7 @@ class WeChatBot:
         on_scanned: Callable[[], None] | None = None,
         on_expired: Callable[[], None] | None = None,
         on_error: Callable[[Exception], None] | None = None,
+        on_verify_code: Callable[[bool], str] | None = None,
         bot_agent: str | None = None,
     ) -> None:
         self._base_url = base_url or DEFAULT_BASE_URL
@@ -85,6 +86,7 @@ class WeChatBot:
         self._on_scanned = on_scanned
         self._on_expired = on_expired
         self._on_error = on_error
+        self._on_verify_code = on_verify_code
 
         self._api = ILinkApi(bot_agent=bot_agent)
         self._credentials: Credentials | None = None
@@ -105,6 +107,7 @@ class WeChatBot:
             on_qr_url=self._on_qr_url,
             on_scanned=self._on_scanned,
             on_expired=self._on_expired,
+            on_verify_code=self._on_verify_code,
         )
         self._credentials = creds
         self._base_url = creds.base_url
