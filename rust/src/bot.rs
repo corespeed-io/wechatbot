@@ -277,6 +277,13 @@ impl WeChatBot {
 
     /// Show "typing..." indicator.
     pub async fn send_typing(&self, user_id: &str) -> Result<()> {
+        self.send_typing_with_status(user_id, 1).await
+    }
+
+    /// Set the "typing..." indicator status.
+    ///
+    /// Status `1` starts the indicator, while status `2` stops it.
+    pub async fn send_typing_with_status(&self, user_id: &str, status: i32) -> Result<()> {
         let ct = self.context_tokens.read().await.get(user_id).cloned();
         let ct = ct.ok_or_else(|| WeChatBotError::NoContext(user_id.to_string()))?;
         let (base_url, token) = self.get_auth().await?;
@@ -286,7 +293,7 @@ impl WeChatBot {
             .await?;
         if let Some(ticket) = config.typing_ticket {
             self.client
-                .send_typing(&base_url, &token, user_id, &ticket, 1)
+                .send_typing(&base_url, &token, user_id, &ticket, status)
                 .await?;
         }
         Ok(())
