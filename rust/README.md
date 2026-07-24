@@ -117,8 +117,11 @@ bot.reply(&msg, "Echo: hello").await?;
 // Send to user (needs prior context_token)
 bot.send(user_id, "Hello").await?;
 
-// Typing indicator
+// Start typing indicator (status = 1)
 bot.send_typing(user_id).await?;
+
+// Set typing status explicitly (1 = start, 2 = stop)
+bot.send_typing_with_status(user_id, 2).await?;
 ```
 
 ### Media Operations
