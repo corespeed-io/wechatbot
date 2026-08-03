@@ -9,16 +9,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/corespeed-io/wechatbot/golang/internal/auth"
 	"github.com/corespeed-io/wechatbot/golang/internal/crypto"
 	"github.com/corespeed-io/wechatbot/golang/internal/protocol"
 )
@@ -28,13 +27,13 @@ type MessageHandler func(msg *IncomingMessage)
 
 // Options configures a Bot instance.
 type Options struct {
-	BaseURL      string
-	CredPath     string
-	LogLevel     string // "debug", "info", "warn", "error", "silent"
-	OnQRURL      func(url string)
-	OnScanned    func()
-	OnExpired    func()
-	OnError      func(err error)
+	BaseURL   string
+	CredPath  string
+	Logger    *slog.Logger
+	OnQRURL   func(url string)
+	OnScanned func()
+	OnExpired func()
+	OnError   func(err error)
 	// OnVerifyCode is called when the server requires a pairing code (the
 	// digits shown in WeChat on the user's phone). isRetry is true when a
 	// previously submitted code was rejected. Defaults to a stdin prompt.
@@ -42,20 +41,21 @@ type Options struct {
 	// BotAgent identifies the app driving this bot, sent as base_info.bot_agent
 	// on every API request (e.g. "MyApp/1.2 (prod)"). Invalid values fall back
 	// to protocol.DefaultBotAgent.
-	BotAgent     string
+	BotAgent string
 }
 
 // Bot is the main WeChat bot client.
 type Bot struct {
 	opts          Options
 	client        *protocol.Client
-	creds         *auth.Credentials
+	creds         *Credentials
 	handlers      []MessageHandler
 	contextTokens sync.Map // map[string]string
 	cursor        string
 	stopped       bool
 	mu            sync.Mutex
 	cancelPoll    context.CancelFunc
+	logger        *slog.Logger
 }
 
 // New creates a new Bot instance.
@@ -69,18 +69,25 @@ func New(opts ...Options) *Bot {
 	}
 	client := protocol.NewClient()
 	client.BotAgent = protocol.SanitizeBotAgent(o.BotAgent)
-	return &Bot{
+
+	bot := &Bot{
 		opts:   o,
 		client: client,
 	}
+	if o.Logger == nil {
+		bot.logger = slog.Default()
+	} else {
+		bot.logger = o.Logger
+	}
+	return bot
 }
 
 // Login performs QR code login or loads stored credentials.
 func (b *Bot) Login(ctx context.Context, force bool) (*Credentials, error) {
-	creds, err := auth.Login(ctx, b.client, auth.LoginOptions{
-		BaseURL:   b.opts.BaseURL,
-		CredPath:  b.opts.CredPath,
-		Force:     force,
+	creds, err := b.login(ctx, loginOptions{
+		BaseURL:      b.opts.BaseURL,
+		CredPath:     b.opts.CredPath,
+		Force:        force,
 		OnQRURL:      b.opts.OnQRURL,
 		OnScanned:    b.opts.OnScanned,
 		OnExpired:    b.opts.OnExpired,
@@ -95,15 +102,11 @@ func (b *Bot) Login(ctx context.Context, force bool) (*Credentials, error) {
 	b.opts.BaseURL = creds.BaseURL
 	b.mu.Unlock()
 
-	b.log("info", "Logged in as %s", creds.UserID)
+	b.logger.Info(fmt.Sprintf("Logged in as %s", creds.UserID))
 
-	return &Credentials{
-		Token:     creds.Token,
-		BaseURL:   creds.BaseURL,
-		AccountID: creds.AccountID,
-		UserID:    creds.UserID,
-		SavedAt:   creds.SavedAt,
-	}, nil
+	r := new(Credentials)
+	*r = *creds
+	return r, nil
 }
 
 // OnMessage registers a message handler.
@@ -274,7 +277,7 @@ func (b *Bot) Run(ctx context.Context) error {
 
 	// Tell the server we're coming online (non-fatal)
 	if err := b.client.NotifyStart(pollCtx, creds.BaseURL, creds.Token); err != nil {
-		b.log("warn", "notifystart failed (ignored): %v", err)
+		b.logger.Warn("notifystart failed (ignored)", "error", err)
 	}
 
 	// Tell the server we're going offline when the loop exits (non-fatal).
@@ -284,18 +287,18 @@ func (b *Bot) Run(ctx context.Context) error {
 		defer cancelStop()
 		if c := b.getCreds(); c != nil {
 			if err := b.client.NotifyStop(stopCtx, c.BaseURL, c.Token); err != nil {
-				b.log("warn", "notifystop failed (ignored): %v", err)
+				b.logger.Warn("notifystop failed (ignored)", "error", err)
 			}
 		}
 	}()
 
-	b.log("info", "Long-poll loop started")
+	b.logger.Info("Long-poll loop started")
 	retryDelay := time.Second
 
 	for {
 		select {
 		case <-pollCtx.Done():
-			b.log("info", "Long-poll loop stopped")
+			b.logger.Info("Long-poll loop stopped")
 			return nil
 		default:
 		}
@@ -304,14 +307,14 @@ func (b *Bot) Run(ctx context.Context) error {
 		updates, err := b.client.GetUpdates(pollCtx, creds.BaseURL, creds.Token, b.cursor)
 		if err != nil {
 			if pollCtx.Err() != nil {
-				b.log("info", "Long-poll loop stopped")
+				b.logger.Info("Long-poll loop stopped")
 				return nil
 			}
 
 			apiErr, isAPI := err.(*protocol.APIError)
 			if isAPI && apiErr.IsSessionExpired() {
-				b.log("warn", "Session expired — re-login required")
-				auth.ClearCredentials(b.opts.CredPath)
+				b.logger.Warn("Session expired — re-login required")
+				clearCredentials(b.opts.CredPath)
 				b.contextTokens = sync.Map{}
 				b.cursor = ""
 				if _, loginErr := b.Login(pollCtx, true); loginErr != nil {
@@ -493,7 +496,7 @@ func (b *Bot) cdnDownload(ctx context.Context, media *CDNMedia, aeskeyOverride s
 	return crypto.DecryptAESECB(ciphertext, aesKey)
 }
 
-func (b *Bot) cdnUpload(ctx context.Context, creds *auth.Credentials, data []byte, userID string, mediaType int) (*UploadResult, error) {
+func (b *Bot) cdnUpload(ctx context.Context, creds *Credentials, data []byte, userID string, mediaType int) (*UploadResult, error) {
 	aesKey, err := crypto.GenerateAESKey()
 	if err != nil {
 		return nil, fmt.Errorf("generate aes key: %w", err)
@@ -667,24 +670,17 @@ func (b *Bot) parseMessage(wire *WireMessage) *IncomingMessage {
 	return msg
 }
 
-func (b *Bot) getCreds() *auth.Credentials {
+func (b *Bot) getCreds() *Credentials {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.creds
 }
 
 func (b *Bot) reportError(err error) {
-	b.log("error", "%v", err)
+	b.logger.Error("reportError", "error", err)
 	if b.opts.OnError != nil {
 		b.opts.OnError(err)
 	}
-}
-
-func (b *Bot) log(level, format string, args ...interface{}) {
-	if b.opts.LogLevel == "silent" {
-		return
-	}
-	fmt.Fprintf(os.Stderr, "[wechatbot] %s\n", fmt.Sprintf(format, args...))
 }
 
 func detectType(items []MessageItem) ContentType {

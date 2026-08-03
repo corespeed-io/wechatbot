@@ -1,5 +1,5 @@
 // Package auth handles QR code login and credential persistence.
-package auth
+package wechatbot
 
 import (
 	"bufio"
@@ -14,17 +14,8 @@ import (
 	"github.com/corespeed-io/wechatbot/golang/internal/protocol"
 )
 
-// Credentials holds bot authentication data.
-type Credentials struct {
-	Token     string `json:"token"`
-	BaseURL   string `json:"baseUrl"`
-	AccountID string `json:"accountId"`
-	UserID    string `json:"userId"`
-	SavedAt   string `json:"savedAt,omitempty"`
-}
-
-// DefaultCredPath returns ~/.wechatbot/credentials.json
-func DefaultCredPath() string {
+// defaultCredPath returns ~/.wechatbot/credentials.json
+func defaultCredPath() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".wechatbot", "credentials.json")
 }
@@ -32,7 +23,7 @@ func DefaultCredPath() string {
 // LoadCredentials loads stored credentials from disk.
 func LoadCredentials(path string) (*Credentials, error) {
 	if path == "" {
-		path = DefaultCredPath()
+		path = defaultCredPath()
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -51,7 +42,7 @@ func LoadCredentials(path string) (*Credentials, error) {
 // SaveCredentials persists credentials to disk with 0600 permissions.
 func SaveCredentials(creds *Credentials, path string) error {
 	if path == "" {
-		path = DefaultCredPath()
+		path = defaultCredPath()
 	}
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0700); err != nil {
@@ -61,16 +52,16 @@ func SaveCredentials(creds *Credentials, path string) error {
 	return os.WriteFile(path, append(data, '\n'), 0600)
 }
 
-// ClearCredentials removes stored credentials.
-func ClearCredentials(path string) error {
+// clearCredentials removes stored credentials.
+func clearCredentials(path string) error {
 	if path == "" {
-		path = DefaultCredPath()
+		path = defaultCredPath()
 	}
 	return os.Remove(path)
 }
 
-// LoginOptions configures the login flow.
-type LoginOptions struct {
+// loginOptions configures the login flow.
+type loginOptions struct {
 	BaseURL   string
 	CredPath  string
 	Force     bool
@@ -106,7 +97,8 @@ const (
 // Login performs QR code login, returning credentials.
 // If stored credentials exist and Force is false, returns them directly.
 // Handles IDC redirect (scaned_but_redirect) and limits QR refreshes.
-func Login(ctx context.Context, client *protocol.Client, opts LoginOptions) (*Credentials, error) {
+func (b *Bot) login(ctx context.Context, opts loginOptions) (*Credentials, error) {
+	client := b.client
 	baseURL := opts.BaseURL
 	if baseURL == "" {
 		baseURL = protocol.DefaultBaseURL
@@ -139,7 +131,7 @@ func Login(ctx context.Context, client *protocol.Client, opts LoginOptions) (*Cr
 		if opts.OnQRURL != nil {
 			opts.OnQRURL(qr.QRCodeImgURL)
 		} else {
-			fmt.Fprintf(os.Stderr, "[wechatbot] Scan this URL in WeChat: %s\n", qr.QRCodeImgURL)
+			b.logger.Info("Scan this URL in WeChat: " + qr.QRCodeImgURL)
 		}
 
 		lastStatus := ""
@@ -161,16 +153,16 @@ func Login(ctx context.Context, client *protocol.Client, opts LoginOptions) (*Cr
 					if opts.OnScanned != nil {
 						opts.OnScanned()
 					} else {
-						fmt.Fprintln(os.Stderr, "[wechatbot] QR scanned — confirm in WeChat")
+						b.logger.Info("QR scanned — confirm in WeChat")
 					}
 				case "expired":
 					if opts.OnExpired != nil {
 						opts.OnExpired()
 					} else {
-						fmt.Fprintln(os.Stderr, "[wechatbot] QR expired — requesting new one")
+						b.logger.Info("QR expired — requesting new one")
 					}
 				case "confirmed":
-					fmt.Fprintln(os.Stderr, "[wechatbot] Login confirmed")
+					b.logger.Info("Login confirmed")
 				}
 			}
 
@@ -190,7 +182,7 @@ func Login(ctx context.Context, client *protocol.Client, opts LoginOptions) (*Cr
 					SavedAt:   time.Now().UTC().Format(time.RFC3339),
 				}
 				if err := SaveCredentials(creds, opts.CredPath); err != nil {
-					fmt.Fprintf(os.Stderr, "[wechatbot] Warning: could not save credentials: %v\n", err)
+					b.logger.Warn("Warning: could not save credentials", "error", err)
 				}
 				return creds, nil
 			}
@@ -212,7 +204,7 @@ func Login(ctx context.Context, client *protocol.Client, opts LoginOptions) (*Cr
 
 			// Too many wrong pairing codes: server blocked this QR — get a new one
 			if status.Status == "verify_code_blocked" {
-				fmt.Fprintln(os.Stderr, "[wechatbot] Pairing code blocked after repeated mismatches — requesting new QR")
+				b.logger.Info("Pairing code blocked after repeated mismatches — requesting new QR")
 				pendingVerifyCode = ""
 				break // Outer loop requests a new QR (counts toward refresh limit)
 			}
@@ -220,7 +212,7 @@ func Login(ctx context.Context, client *protocol.Client, opts LoginOptions) (*Cr
 			// Already bound to this client: reuse existing local credentials
 			if status.Status == "binded_redirect" {
 				if stored != nil {
-					fmt.Fprintln(os.Stderr, "[wechatbot] Bot already bound — reusing stored credentials")
+					b.logger.Info("Bot already bound — reusing stored credentials")
 					return stored, nil
 				}
 				return nil, fmt.Errorf("server reports this bot is already bound to this client (binded_redirect), but no local credentials were found")
@@ -230,7 +222,7 @@ func Login(ctx context.Context, client *protocol.Client, opts LoginOptions) (*Cr
 			if status.Status == "scaned_but_redirect" {
 				if status.RedirectHost != "" {
 					currentPollBaseURL = "https://" + status.RedirectHost
-					fmt.Fprintf(os.Stderr, "[wechatbot] IDC redirect → %s\n", status.RedirectHost)
+					b.logger.Info("IDC redirect → " + status.RedirectHost)
 				}
 				time.Sleep(2 * time.Second)
 				continue
