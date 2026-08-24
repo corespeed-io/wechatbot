@@ -28,6 +28,13 @@ import { readFile, writeFile, mkdtemp } from 'node:fs/promises'
 import { basename, join, extname } from 'node:path'
 import { tmpdir } from 'node:os'
 
+// ── Module-level state ──────────────────────────────────────────────
+// Declared at module scope (outside the extension factory) so it survives a
+// session replacement. Pi caches the extension factory for the same cwd, so
+// when "/new" triggers ctx.newSession() and the extension is torn down and
+// re-instantiated, the new instance can still read this flag and auto-reconnect.
+let pendingReconnect = false
+
 export default function wechatBridge(pi: ExtensionAPI) {
   let bot: WeChatBot | null = null
   let connected = false
@@ -122,37 +129,60 @@ Key behaviors:
     }
   })
 
-  // ── /wechat and /weixin commands ──────────────────────────────────
+  // ── WeChat slash commands ──────────────────────────────────────────
+  // These are intercepted in onMessage and handled BEFORE forwarding the text
+  // to the LLM. Otherwise "/new" would just be sent to the agent as a prompt.
 
-  const startWechat = async (args: string | undefined, ctx: any) => {
-    if (connected && bot) {
-      const action = await ctx.ui.select('WeChat is connected', [
-        'Reconnect', 'Disconnect', 'Status', 'Cancel',
-      ])
-      if (action === 'Reconnect') {
-        ctx.ui.setStatus('wechat', '🔄 Reconnecting…')
-        bot.stop()
-        connected = false
-        activeUserId = null
+  const WECHAT_HELP = [
+    '可用命令：',
+    '/new  开启新对话（清空上下文）',
+    '/help  显示本帮助',
+    '/status  查看连接状态',
+  ].join('\n')
+
+  const handleWechatCommand = async (msg: IncomingMessage, bot: WeChatBot): Promise<boolean> => {
+    if (msg.type !== 'text') return false
+    const text = (msg.text ?? '').trim()
+    if (!text.startsWith('/')) return false
+
+    const cmd = text.split(/\s+/)[0].slice(1).toLowerCase()
+
+    switch (cmd) {
+      case 'new':
+      case 'clear':
+      case 'reset': {
+        try { await bot.stopTyping(msg.userId) } catch {}
+        // Drop any in-flight reply so the aborted turn isn't sent back to WeChat.
         pendingReply = null
-        bot = null
-        // Fall through to login flow below
-      } else if (action === 'Disconnect') {
-        bot.stop(); connected = false
-        activeUserId = null
-        pendingReply = null
-        ctx.ui.setStatus('wechat', undefined)
-        ctx.ui.notify('WeChat disconnected', 'info')
-        bot = null
-        return
-      } else if (action === 'Status') {
-        const creds = bot.getCredentials()
-        ctx.ui.notify(`Account: ${creds?.accountId}\nUser: ${creds?.userId}`, 'info')
-        return
-      } else {
-        return
+        isStreaming = false
+        assistantText = ''
+        await bot.reply(msg, '✓ 已开启新对话')
+        // Dispatch an internal extension command that has access to ctx.newSession().
+        // The bridge auto-reconnects once the new session starts.
+        pendingReconnect = true
+        pi.sendUserMessage('/wechat-new', { expandPromptTemplates: true })
+        return true
       }
+      case 'help': {
+        await bot.reply(msg, WECHAT_HELP)
+        return true
+      }
+      case 'status': {
+        const creds = bot.getCredentials()
+        await bot.reply(msg, creds
+          ? `账号: ${creds.accountId}\n用户: ${creds.userId}`
+          : '未连接')
+        return true
+      }
+      default:
+        return false
     }
+  }
+
+  // ── Connect logic (shared by /wechat and the post-"/new" auto-reconnect) ──
+
+  const connectWechat = async (ctx: any) => {
+    pendingReconnect = false
 
     // Try stored credentials first; only force QR scan if none exist.
     // This avoids requiring a new QR scan on every service restart (issue #40).
@@ -189,6 +219,9 @@ Key behaviors:
       connected = true
 
       bot.onMessage(async (msg: IncomingMessage) => {
+        // Handle slash commands first — never forward them to the LLM.
+        if (await handleWechatCommand(msg, bot!)) return
+
         activeUserId = msg.userId
         pendingReply = msg
         isStreaming = true
@@ -228,12 +261,59 @@ Key behaviors:
       ctx.ui.setStatus('wechat', undefined)
       ctx.ui.notify(`Login failed: ${e instanceof Error ? e.message : e}`, 'error')
       bot = null
+      connected = false
     }
+  }
+
+  // ── /wechat and /weixin commands ──────────────────────────────────
+
+  const startWechat = async (args: string | undefined, ctx: any) => {
+    if (connected && bot) {
+      const action = await ctx.ui.select('WeChat is connected', [
+        'Reconnect', 'Disconnect', 'Status', 'Cancel',
+      ])
+      if (action === 'Reconnect') {
+        ctx.ui.setStatus('wechat', '🔄 Reconnecting…')
+        bot.stop()
+        connected = false
+        activeUserId = null
+        pendingReply = null
+        bot = null
+        // Fall through to login flow below
+      } else if (action === 'Disconnect') {
+        bot.stop(); connected = false
+        activeUserId = null
+        pendingReply = null
+        ctx.ui.setStatus('wechat', undefined)
+        ctx.ui.notify('WeChat disconnected', 'info')
+        bot = null
+        return
+      } else if (action === 'Status') {
+        const creds = bot.getCredentials()
+        ctx.ui.notify(`Account: ${creds?.accountId}\nUser: ${creds?.userId}`, 'info')
+        return
+      } else {
+        return
+      }
+    }
+
+    await connectWechat(ctx)
   }
 
   pi.registerCommand('wechat', {
     description: 'Connect WeChat — scan QR to chat with Pi from your phone',
     handler: startWechat,
+  })
+
+  // Internal command dispatched by the WeChat bridge when the user sends "/new".
+  // Registered as an extension command so its handler receives a fresh command
+  // context with ctx.newSession().
+  pi.registerCommand('wechat-new', {
+    description: 'Start a new conversation from WeChat',
+    handler: async (_args, ctx) => {
+      const result = await ctx.newSession()
+      if (result.cancelled) pendingReconnect = false
+    },
   })
 
   pi.on('session_shutdown', async () => {
@@ -242,6 +322,11 @@ Key behaviors:
   })
 
   pi.on('session_start', async (_event, ctx) => {
+    if (pendingReconnect) {
+      pendingReconnect = false
+      await connectWechat(ctx)
+      return
+    }
     if (connected && bot) {
       ctx.ui.setStatus('wechat', `✓ WeChat: ${bot.getCredentials()?.accountId ?? 'connected'}`)
     }
