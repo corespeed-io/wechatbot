@@ -73,11 +73,20 @@ export class MediaError extends WeChatBotError {
 }
 
 /**
- * Transport-level network errors.
+ * Transport-level errors: network failures, timeouts, and malformed/
+ * non-JSON responses.
  */
 export class TransportError extends WeChatBotError {
-  constructor(message: string, options?: ErrorOptions) {
+  /**
+   * Whether the failed request is safe to retry. Network failures and 5xx/429
+   * (including non-JSON gateway responses) are retryable; definitive 4xx
+   * responses are not.
+   */
+  readonly retryable: boolean
+
+  constructor(message: string, options?: ErrorOptions & { retryable?: boolean }) {
     super('TRANSPORT_ERROR', message, options)
     this.name = 'TransportError'
+    this.retryable = options?.retryable ?? true
   }
 }

@@ -464,6 +464,15 @@ export class WeChatBot extends TypedEmitter<BotEventMap> {
     return this.poller.isRunning
   }
 
+  /**
+   * Forget the persisted long-poll cursor, so the next poll re-fetches pending
+   * updates from the server. Useful for recovering from a stale/stuck poll loop
+   * or a corrupt cursor file.
+   */
+  async resetCursor(): Promise<void> {
+    await this.poller.resetCursor()
+  }
+
   // ═══════════════════════════════════════════════════════════════════
   // Utility
   // ═══════════════════════════════════════════════════════════════════

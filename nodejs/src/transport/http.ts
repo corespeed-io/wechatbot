@@ -8,6 +8,7 @@ const DEFAULT_RETRY_POLICY: RetryPolicy = {
   maxDelayMs: 10_000,
   isRetryable: (error: unknown) => {
     if (error instanceof ApiError) return false // API errors are definitive
+    if (error instanceof TransportError) return error.retryable
     if (error instanceof Error) {
       return error.name === 'AbortError' || error.name === 'TimeoutError'
     }
@@ -123,26 +124,26 @@ export class HttpClient {
     }
 
     const text = await response.text()
-    const data = text ? (JSON.parse(text) as Record<string, unknown>) : {}
+    const data = parseJsonBody(text, { status: response.status, method, url })
 
     // Check HTTP status
     if (!response.ok) {
       const message =
-        (data as { errmsg?: string }).errmsg ??
+        errmsgOf(data) ??
         `HTTP ${response.status} from ${method} ${url}`
       throw new ApiError(message, {
         httpStatus: response.status,
-        errcode: (data as { errcode?: number }).errcode,
+        errcode: errcodeOf(data),
         payload: data,
       })
     }
 
     // Check iLink business-level errors (ret !== 0 or errcode !== 0)
-    const ret = (data as { ret?: number }).ret
-    const errcode = (data as { errcode?: number }).errcode
-    if ((typeof ret === 'number' && ret !== 0) || (typeof errcode === 'number' && errcode !== 0)) {
+    const ret = typeof data.ret === 'number' ? data.ret : undefined
+    const errcode = errcodeOf(data)
+    if ((ret !== undefined && ret !== 0) || (errcode !== undefined && errcode !== 0)) {
       const code = errcode ?? ret ?? 0
-      const errmsg = (data as { errmsg?: string }).errmsg ?? `API error ret=${ret} errcode=${errcode}`
+      const errmsg = errmsgOf(data) ?? `API error ret=${ret} errcode=${errcode}`
       throw new ApiError(errmsg, {
         httpStatus: response.status,
         errcode: code,
@@ -167,6 +168,46 @@ export class HttpClient {
 
 function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.replace(/\/+$/, '') + '/'
+}
+
+/**
+ * Parse a response body as JSON, tolerating the quirks of real gateways:
+ * a leading UTF-8 BOM, and empty/whitespace-only bodies. Anything else that
+ * isn't JSON becomes a `TransportError` (instead of a raw `SyntaxError`) that
+ * carries whether the request is worth retrying.
+ */
+function parseJsonBody(
+  text: string,
+  ctx: { status: number; method: string; url: string },
+): Record<string, unknown> {
+  const clean = text.startsWith('\uFEFF') ? text.slice(1) : text
+  if (clean.trim() === '') return {}
+
+  try {
+    const parsed = JSON.parse(clean)
+    return typeof parsed === 'object' && parsed !== null
+      ? (parsed as Record<string, unknown>)
+      : {}
+  } catch (error) {
+    const retryable =
+      ctx.status === 408 ||
+      ctx.status === 429 ||
+      ctx.status >= 500 ||
+      (ctx.status >= 200 && ctx.status < 300)
+    const snippet = clean.slice(0, 120).replace(/\s+/g, ' ')
+    throw new TransportError(
+      `Non-JSON response (HTTP ${ctx.status}) from ${ctx.method} ${ctx.url}: ${snippet}`,
+      { cause: error, retryable },
+    )
+  }
+}
+
+function errmsgOf(data: Record<string, unknown>): string | undefined {
+  return typeof data.errmsg === 'string' ? data.errmsg : undefined
+}
+
+function errcodeOf(data: Record<string, unknown>): number | undefined {
+  return typeof data.errcode === 'number' ? data.errcode : undefined
 }
 
 function sleep(ms: number): Promise<void> {

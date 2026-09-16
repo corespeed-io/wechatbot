@@ -58,6 +58,12 @@ All SDKs implement the same flow:
 4. On `-14` error → clear state, re-login
 5. On network error → exponential backoff (1s → 10s max)
 
+### State Persistence & Recovery (Node.js)
+The Node.js SDK persists the long-poll cursor to `~/.wechatbot/cursor.json`:
+- Writes are **atomic** (temp file + fsync + rename) and **serialized per key**, so a crash or an overlapping write can never leave a truncated/zero-filled state file behind.
+- Reads tolerate a leading UTF-8 BOM and **quarantine corrupt files** instead of throwing, so a damaged state file can never prevent the bot from starting.
+- Non-JSON HTTP responses (gateway error pages, BOM-prefixed bodies) raise a typed `TransportError` that is retried for 5xx/429 and reported with a clear message otherwise.
+
 ### Media Pipeline
 All SDKs support encrypted media upload and download via the WeChat CDN:
 1. **Upload**: generate AES key → encrypt (AES-128-ECB) → getuploadurl → POST to CDN → get download param

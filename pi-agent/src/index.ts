@@ -35,6 +35,8 @@ export default function wechatBridge(pi: ExtensionAPI) {
   let pendingReply: IncomingMessage | null = null
   let assistantText = ''
   let isStreaming = false
+  let pollRetryTimer: ReturnType<typeof setTimeout> | null = null
+  let pollAttempts = 0
 
   // ── Inject system prompt so agent knows about WeChat bridge ────────
 
@@ -122,6 +124,52 @@ Key behaviors:
     }
   })
 
+  // ── Poll loop with auto-recovery ───────────────────────────────────
+
+  const clearPollRetry = () => {
+    if (pollRetryTimer) {
+      clearTimeout(pollRetryTimer)
+      pollRetryTimer = null
+    }
+  }
+
+  /**
+   * Start the long-poll loop, auto-recovering if it crashes during startup.
+   * A crash here is almost always stale/corrupt persisted state (typically the
+   * cursor file), so we drop the cursor before retrying with capped backoff.
+   */
+  const startPolling = (ctx: any) => {
+    if (!bot || !connected) return
+    const current = bot
+    current
+      .start()
+      .then(() => {
+        // Only resolves once polling has been stopped.
+      })
+      .catch(async (e: unknown) => {
+        if (bot !== current || !connected) return
+        const message = e instanceof Error ? e.message : String(e)
+        pollAttempts += 1
+        const delayMs = Math.min(3_000 * 2 ** (pollAttempts - 1), 30_000)
+        ctx.ui.setStatus(
+          'wechat',
+          `✗ Poll crashed: ${message} — retry #${pollAttempts} in ${Math.round(delayMs / 1000)}s`,
+        )
+        ctx.ui.notify(`WeChat polling crashed: ${message}\nAuto-retrying…`, 'error')
+        clearPollRetry()
+        pollRetryTimer = setTimeout(async () => {
+          pollRetryTimer = null
+          if (bot !== current || !connected) return
+          try {
+            await current.resetCursor()
+          } catch {
+            /* best effort */
+          }
+          startPolling(ctx)
+        }, delayMs)
+      })
+  }
+
   // ── /wechat and /weixin commands ──────────────────────────────────
 
   const startWechat = async (args: string | undefined, ctx: any) => {
@@ -131,6 +179,8 @@ Key behaviors:
       ])
       if (action === 'Reconnect') {
         ctx.ui.setStatus('wechat', '🔄 Reconnecting…')
+        clearPollRetry()
+        pollAttempts = 0
         bot.stop()
         connected = false
         activeUserId = null
@@ -138,6 +188,8 @@ Key behaviors:
         bot = null
         // Fall through to login flow below
       } else if (action === 'Disconnect') {
+        clearPollRetry()
+        pollAttempts = 0
         bot.stop(); connected = false
         activeUserId = null
         pendingReply = null
@@ -187,8 +239,10 @@ Key behaviors:
       ctx.ui.setStatus('wechat', `✓ WeChat: ${creds.accountId}`)
       ctx.ui.notify(`WeChat connected!\nAccount: ${creds.accountId}`, 'info')
       connected = true
+      pollAttempts = 0
 
       bot.onMessage(async (msg: IncomingMessage) => {
+        pollAttempts = 0
         activeUserId = msg.userId
         pendingReply = msg
         isStreaming = true
@@ -219,10 +273,7 @@ Key behaviors:
         ctx.ui.setStatus('wechat', `✓ Reconnected: ${c.accountId}`)
       })
 
-      bot.start().catch((e) => {
-        ctx.ui.setStatus('wechat', `✗ Poll error: ${e instanceof Error ? e.message : e}`)
-        connected = false
-      })
+      startPolling(ctx)
 
     } catch (e) {
       ctx.ui.setStatus('wechat', undefined)
@@ -237,6 +288,8 @@ Key behaviors:
   })
 
   pi.on('session_shutdown', async () => {
+    clearPollRetry()
+    pollAttempts = 0
     if (bot) { bot.stop(); bot = null }
     connected = false
   })

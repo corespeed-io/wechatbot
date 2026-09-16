@@ -34,12 +34,21 @@ export class MessagePoller extends TypedEmitter<PollerEventMap> {
     this.logger = logger.child('poller')
   }
 
-  /** Load persisted cursor from storage. */
+  /** Load persisted cursor from storage. Never throws — a missing or corrupt
+   * persisted cursor just means we start from scratch. */
   async loadCursor(): Promise<void> {
-    const stored = await this.storage.get<string>(STORAGE_KEYS.CURSOR)
-    if (stored) {
-      this.cursor = stored
-      this.logger.debug('Loaded cursor from storage')
+    try {
+      const stored = await this.storage.get<string>(STORAGE_KEYS.CURSOR)
+      if (typeof stored === 'string' && stored.length > 0) {
+        this.cursor = stored
+        this.logger.debug('Loaded cursor from storage')
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Failed to load persisted cursor, starting fresh: ${error instanceof Error ? error.message : String(error)}`,
+      )
+      this.cursor = ''
+      await this.storage.delete(STORAGE_KEYS.CURSOR).catch(() => {})
     }
   }
 
@@ -69,10 +78,15 @@ export class MessagePoller extends TypedEmitter<PollerEventMap> {
         this.pollController = null
 
         // Update cursor
-        if (updates.get_updates_buf) {
-          this.cursor = updates.get_updates_buf
+        const nextCursor = updates.get_updates_buf
+        if (typeof nextCursor === 'string' && nextCursor && nextCursor !== this.cursor) {
+          this.cursor = nextCursor
           // Persist cursor asynchronously — don't block the poll loop
-          this.storage.set(STORAGE_KEYS.CURSOR, this.cursor).catch(() => {})
+          this.storage.set(STORAGE_KEYS.CURSOR, this.cursor).catch((error) => {
+            this.logger.warn(
+              `Failed to persist cursor: ${error instanceof Error ? error.message : String(error)}`,
+            )
+          })
         }
 
         retryDelayMs = 1_000

@@ -19,15 +19,23 @@ export class ContextStore {
     this.logger = logger.child('context')
   }
 
-  /** Load persisted context tokens from storage. */
+  /** Load persisted context tokens from storage. Never throws — a missing or
+   * corrupt file just means the cache starts empty. */
   async load(): Promise<void> {
-    const stored = await this.storage.get<Record<string, string>>(STORAGE_KEYS.CONTEXT_TOKENS)
-    if (stored) {
-      for (const [k, v] of Object.entries(stored)) {
-        this.tokens.set(k, v)
-      }
-      this.logger.debug(`Loaded ${this.tokens.size} context tokens from storage`)
+    let stored: Record<string, string> | undefined
+    try {
+      stored = await this.storage.get<Record<string, string>>(STORAGE_KEYS.CONTEXT_TOKENS)
+    } catch (error) {
+      this.logger.warn(
+        `Failed to load context tokens: ${error instanceof Error ? error.message : String(error)}`,
+      )
+      return
     }
+    if (!stored || typeof stored !== 'object') return
+    for (const [k, v] of Object.entries(stored)) {
+      if (typeof v === 'string') this.tokens.set(k, v)
+    }
+    this.logger.debug(`Loaded ${this.tokens.size} context tokens from storage`)
   }
 
   /** Get the cached context_token for a user. */
