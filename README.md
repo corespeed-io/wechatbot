@@ -158,6 +158,7 @@ graph TD
 | [golang/README.md](golang/README.md) | Go SDK 文档 |
 | [rust/README.md](rust/README.md) | Rust SDK 文档 |
 | [pi-agent/README.md](pi-agent/README.md) | Pi 扩展文档（微信 ↔ Pi 桥接） |
+| [skills/wechat-codex/SKILL.md](skills/wechat-codex/SKILL.md) | Codex 微信接入 Skill、运行脚本与排障 |
 
 ## 🌐 网站
 
@@ -171,6 +172,37 @@ graph TD
 pi install npm:@wechatbot/pi-agent
 /wechat          # 显示二维码 → 微信扫码 → 连接成功！
 ```
+
+## 🤖 Codex 微信 Skill
+
+[wechat-codex](skills/wechat-codex/SKILL.md) 将微信连接到本机 Codex CLI：扫码后可以发送文字任务、继续同一个会话，并接收执行结果。它复用已有的 Codex 登录，不需要安装 Pi 或 OpenClaw，也不修改 SDK 核心。
+
+要求 **Node.js 22+、Python 3、已登录的 Codex CLI**（支持 `exec`、`exec resume` 和 `--ignore-user-config`）。桥接进程目前面向 **macOS / Linux**，电脑需要保持开机和联网。
+
+在仓库根目录首次安装 skill：
+
+```bash
+skill_target="${CODEX_HOME:-$HOME/.codex}/skills/wechat-codex"
+test ! -e "$skill_target" && mkdir -p "$(dirname "$skill_target")" && cp -R skills/wechat-codex "$skill_target"
+```
+
+然后在能够发现该 skill 的 Codex 任务中说：
+
+> 用 $wechat-codex 把 Codex 接入微信。
+
+Skill 会检查环境、准备独立桥接目录、展示二维码，并核实登录和消息回传。扫码确认需要本人完成。也可以直接运行桥接：
+
+```bash
+python3 skills/wechat-codex/scripts/setup.py --target ./wechat-codex-local
+npm --prefix ./wechat-codex-local ci --ignore-scripts --no-audit --no-fund
+node ./wechat-codex-local/codex-wechat.mjs
+```
+
+微信命令：`/help`、`/status`、`/new`、`/cancel`、`/stop`。默认在桥接目录的 `codex-workspace` 中执行任务，可用 `WECHAT_CODEX_WORKDIR` 指定项目路径。
+
+第一条任务创建**独立的 Codex 会话**，后续消息通过明确的 session ID 续接；`/status` 显示 ID，可在本机用 `codex resume <SESSION_ID>` 查看。Skill 在支持任务导航工具的 Codex App 中也可以按 ID 打开会话。请避免微信和本地同时向同一会话提交任务。
+
+当前支持文字输入与回复、配对账号限制、单任务执行、10 分钟超时和有界登录重试。使用 `workspace-write` 沙箱，额外审批不可通过该桥接完成。微信凭证只在内存中；重启需重新扫码并创建新对话，Codex 自身的历史记录仍保存在本地。Claude Code 暂未包含在此 skill 中。
 
 ## 🔧 预编译 Echo Bot
 
@@ -203,6 +235,7 @@ wechatbot/
 │   └── src/               #   6 个模块
 ├── pi-agent/              # Pi 扩展（微信 ↔ Pi 桥接）
 │   └── src/               #   扩展入口 & 微信客户端
+├── skills/wechat-codex/    # Codex 微信 Skill 与独立桥接模板
 └── docs/                  # 共享文档
     ├── protocol.md        #   iLink API 协议规范
     └── architecture.md    #   架构 & SDK 对比

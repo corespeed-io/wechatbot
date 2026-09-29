@@ -1,0 +1,33 @@
+name: WeChat Codex skill
+
+on:
+  pull_request:
+    paths: ['skills/wechat-codex/**', '.github/workflows/wechat-codex.yml', 'README.md', 'README.EN.MD']
+  push:
+    branches: [main]
+    paths: ['skills/wechat-codex/**', '.github/workflows/wechat-codex.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: node --test skills/wechat-codex/tests/*.test.mjs
+      - run: python3 -m unittest discover -s skills/wechat-codex/tests -p 'test_*.py'
+      - name: Scaffold and install the standalone bridge
+        run: |
+          python3 skills/wechat-codex/scripts/setup.py --target "$RUNNER_TEMP/wechat-codex"
+          npm --prefix "$RUNNER_TEMP/wechat-codex" ci --ignore-scripts --no-audit --no-fund
+          node --check "$RUNNER_TEMP/wechat-codex/codex-wechat.mjs"
