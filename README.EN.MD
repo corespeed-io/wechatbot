@@ -128,6 +128,37 @@ pi install npm:@wechatbot/pi-agent
 
 See [pi-agent/README.md](pi-agent/README.md) for details.
 
+## 🤖 Codex WeChat Skill
+
+[wechat-codex](skills/wechat-codex/SKILL.md) connects WeChat to your local Codex CLI. Scan the QR code, send text tasks, continue the same session, and receive results in WeChat. It reuses your Codex login without requiring Pi, OpenClaw, or SDK core changes.
+
+Requires **Node.js 22+, Python 3, and an authenticated Codex CLI** supporting `exec`, `exec resume`, and `--ignore-user-config`. The bridge currently targets **macOS / Linux**. Keep the host running and connected to the internet.
+
+First-time skill installation, from the repository root:
+
+```bash
+skill_target="${CODEX_HOME:-$HOME/.codex}/skills/wechat-codex"
+test ! -e "$skill_target" && mkdir -p "$(dirname "$skill_target")" && cp -R skills/wechat-codex "$skill_target"
+```
+
+In a Codex task that discovers the skill, ask:
+
+> Use $wechat-codex to connect Codex to WeChat.
+
+The skill checks prerequisites, prepares a standalone bridge directory, displays the QR code, and verifies login and replies. You still scan and confirm on your phone. To run the bridge directly:
+
+```bash
+python3 skills/wechat-codex/scripts/setup.py --target ./wechat-codex-local
+npm --prefix ./wechat-codex-local ci --ignore-scripts --no-audit --no-fund
+node ./wechat-codex-local/codex-wechat.mjs
+```
+
+WeChat commands: `/help`, `/status`, `/new`, `/cancel`, `/stop`. Tasks use the bridge's `codex-workspace` directory by default; set `WECHAT_CODEX_WORKDIR` to select a project.
+
+The first task creates an **independent Codex session**. Follow-ups resume its exact ID, shown by `/status`; open it locally with `codex resume <SESSION_ID>`. In Codex App environments exposing task-navigation tools, the skill can also open the session by ID. Avoid simultaneous local and WeChat submissions to the same session.
+
+This version supports text input/replies, paired-sender filtering, one task at a time, a ten-minute execution limit, and bounded login retries. It uses the `workspace-write` sandbox; operations requiring additional approval cannot be approved through the bridge. WeChat credentials stay in memory. Restarting requires a new scan and starts a new conversation; Codex's saved history remains on disk. Claude Code is not included in this skill yet.
+
 ## ✨ Features
 
 All SDKs share the following capabilities:
@@ -209,6 +240,7 @@ graph TD
 | [golang/README.md](golang/README.md) | Go SDK Documentation |
 | [rust/README.md](rust/README.md) | Rust SDK Documentation |
 | [pi-agent/README.md](pi-agent/README.md) | Pi Extension (WeChat ↔ Pi Bridge) |
+| [skills/wechat-codex/SKILL.md](skills/wechat-codex/SKILL.md) | Codex WeChat skill, runtime scripts, and troubleshooting |
 
 ## 🌐 Website
 
@@ -233,6 +265,7 @@ wechatbot/
 │   └── src/               #   6 modules
 ├── pi-agent/              # Pi Extension (WeChat ↔ Pi Bridge)
 │   └── src/               #   Extension entry & WeChat client
+├── skills/wechat-codex/    # Codex WeChat skill and standalone bridge template
 └── docs/                  # Shared documentation
     ├── protocol.md        #   iLink API Protocol Spec
     └── architecture.md    #   Architecture & SDK Comparison

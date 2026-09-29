@@ -1,0 +1,4 @@
+node_modules/
+.runtime/
+codex-workspace/
+*-login-qr.png

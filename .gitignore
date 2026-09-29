@@ -7,6 +7,7 @@ tmp/
 next-env.d.ts
 target/
 package-lock.json
+!skills/wechat-codex/assets/bridge/package-lock.json
 __pycache__/
 *.pyc
 *.egg-info/

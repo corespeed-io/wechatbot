@@ -1,0 +1,9 @@
+{
+  "name": "wechat-codex-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": { "start": "node codex-wechat.mjs" },
+  "dependencies": { "@wechatbot/wechatbot": "2.2.0", "qrcode": "1.5.4" }
+}
