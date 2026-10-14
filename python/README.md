@@ -10,6 +10,17 @@ pip install wechatbot-sdk
 
 Requires Python ≥ 3.9. Dependencies: `aiohttp`, `cryptography`.
 
+### Codex text and image chat (Windows/Python)
+
+The optional [Codex bridge example](CODEX-WECHAT.md) connects WeChat to a locally
+authenticated Codex CLI. It supports single-image understanding, follow-up questions
+about the most recent image, and `/reset` for text and image context. It only replies
+to the QR-login account and is a chat-only example, not a remote code-execution agent.
+
+From a source checkout's `python` directory, install `pip install -e ".[codex]"`
+and run `python examples/codex_bot.py`. The guide includes Windows PowerShell setup,
+the `start-codex.cmd` launcher, image limits, privacy notes and opt-in live self-tests.
+
 ## Quick Start
 
 ```python
@@ -73,7 +84,7 @@ bot = WeChatBot(
 | `await bot.reply_media(msg, content)` | Reply with media (image, file, video) |
 | `await bot.send_media(user_id, content)` | Send media to user (needs prior context) |
 | `await bot.download(msg)` | Download media from incoming message |
-| `await bot.download_raw(media, aeskey)` | Download and decrypt a raw CDN media reference |
+| `await bot.download_raw(media, aeskey, max_bytes=None)` | Download/decrypt CDN media, with an optional byte limit |
 | `await bot.upload(data, user_id, media_type)` | Upload file to CDN (does not send) |
 
 ## Media Operations
@@ -109,6 +120,12 @@ async def handle(msg):
     # Or download a raw CDN reference directly
     if msg.images:
         raw = await bot.download_raw(msg.images[0].media, msg.images[0].aes_key)
+
+        # Optional: bound both the encrypted stream (including padding) and plaintext.
+        # Raises MediaError if the download exceeds the limit.
+        raw = await bot.download_raw(
+            msg.images[0].media, msg.images[0].aes_key, max_bytes=10 * 1024 * 1024
+        )
 ```
 
 ### Uploading to CDN
@@ -174,7 +191,7 @@ python/
 ## Testing
 
 ```bash
-pip install -e ".[dev]"
+pip install -e ".[dev,codex]"
 pytest
 ```
 

@@ -11,6 +11,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+codex = [
+    "Pillow>=10.4,<13",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
