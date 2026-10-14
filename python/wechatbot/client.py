@@ -20,6 +20,7 @@ from .crypto import (
     encode_aes_key_base64,
     encode_aes_key_hex,
     encrypt_aes_ecb,
+    encrypted_size,
     generate_aes_key,
 )
 from .errors import ApiError, MediaError, NoContextError
@@ -212,9 +213,16 @@ class WeChatBot:
 
         return None
 
-    async def download_raw(self, media: CDNMedia, aeskey_override: str | None = None) -> bytes:
-        """Download and decrypt a raw CDN media reference."""
-        return await self._cdn_download(media, aeskey_override)
+    async def download_raw(
+        self, media: CDNMedia, aeskey_override: str | None = None,
+        *, max_bytes: int | None = None,
+    ) -> bytes:
+        """Download and decrypt media, optionally limiting decrypted bytes.
+
+        A bounded download also limits the encrypted stream (including AES padding),
+        even if the server omits or misreports Content-Length.
+        """
+        return await self._cdn_download(media, aeskey_override, max_bytes=max_bytes)
 
     # ── Upload ─────────────────────────────────────────────────────
 
@@ -433,21 +441,38 @@ class WeChatBot:
 
     async def _cdn_download(
         self, media: CDNMedia, aeskey_override: str | None = None,
+        *, max_bytes: int | None = None,
     ) -> bytes:
+        if max_bytes is not None and max_bytes <= 0:
+            raise ValueError("max_bytes must be positive")
         url = f"{CDN_BASE_URL}/download?encrypted_query_param={quote(media.encrypt_query_param)}"
         timeout = aiohttp.ClientTimeout(total=60)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.get(url) as resp:
                 if resp.status >= 400:
                     raise MediaError(f"CDN download failed: HTTP {resp.status}")
-                ciphertext = await resp.read()
+                if max_bytes is None:
+                    ciphertext = await resp.read()
+                else:
+                    limit = encrypted_size(max_bytes)
+                    if resp.content_length is not None and resp.content_length > limit:
+                        raise MediaError("Media exceeds download size limit")
+                    chunks = bytearray()
+                    async for chunk in resp.content.iter_chunked(64 * 1024):
+                        if len(chunks) + len(chunk) > limit:
+                            raise MediaError("Media exceeds download size limit")
+                        chunks.extend(chunk)
+                    ciphertext = bytes(chunks)
 
         key_source = aeskey_override or media.aes_key
         if not key_source:
             raise MediaError("No AES key available for decryption")
 
         aes_key = decode_aes_key(key_source)
-        return decrypt_aes_ecb(ciphertext, aes_key)
+        data = decrypt_aes_ecb(ciphertext, aes_key)
+        if max_bytes is not None and len(data) > max_bytes:
+            raise MediaError("Media exceeds download size limit")
+        return data
 
     # ── Internal: CDN upload ───────────────────────────────────────
 
