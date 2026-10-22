@@ -8,6 +8,7 @@ const DEFAULT_RETRY_POLICY: RetryPolicy = {
   maxDelayMs: 10_000,
   isRetryable: (error: unknown) => {
     if (error instanceof ApiError) return false // API errors are definitive
+    if (error instanceof TransportError) return true
     if (error instanceof Error) {
       return error.name === 'AbortError' || error.name === 'TimeoutError'
     }
@@ -35,12 +36,20 @@ export class HttpClient {
     let lastError: unknown
 
     for (let attempt = 0; attempt <= this.retryPolicy.maxRetries; attempt++) {
+      options.signal?.throwIfAborted()
+
       try {
         return await this.executeRequest<T>(options)
       } catch (error) {
         lastError = error
 
-        if (attempt < this.retryPolicy.maxRetries && this.retryPolicy.isRetryable(error)) {
+        const shouldRetry =
+          options.retry === true &&
+          !options.signal?.aborted &&
+          attempt < this.retryPolicy.maxRetries &&
+          this.retryPolicy.isRetryable(error)
+
+        if (shouldRetry) {
           const delay = Math.min(
             this.retryPolicy.baseDelayMs * 2 ** attempt,
             this.retryPolicy.maxDelayMs,
@@ -68,7 +77,7 @@ export class HttpClient {
     endpoint: string,
     body: unknown,
     headers: Record<string, string>,
-    options?: { timeoutMs?: number; signal?: AbortSignal },
+    options?: { timeoutMs?: number; signal?: AbortSignal; retry?: boolean },
   ): Promise<T> {
     const url = new URL(endpoint, normalizeBaseUrl(baseUrl)).toString()
     const response = await this.request<T>({
@@ -78,6 +87,7 @@ export class HttpClient {
       body,
       timeoutMs: options?.timeoutMs ?? 15_000,
       signal: options?.signal,
+      retry: options?.retry,
     })
     return response.data
   }
@@ -89,13 +99,16 @@ export class HttpClient {
     baseUrl: string,
     path: string,
     headers?: Record<string, string>,
+    options?: { timeoutMs?: number; signal?: AbortSignal; retry?: boolean },
   ): Promise<T> {
     const url = new URL(path, normalizeBaseUrl(baseUrl)).toString()
     const response = await this.request<T>({
       method: 'GET',
       url,
       headers,
-      timeoutMs: 15_000,
+      timeoutMs: options?.timeoutMs ?? 15_000,
+      signal: options?.signal,
+      retry: options?.retry,
     })
     return response.data
   }

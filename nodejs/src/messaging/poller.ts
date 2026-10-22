@@ -70,9 +70,8 @@ export class MessagePoller extends TypedEmitter<PollerEventMap> {
 
         // Update cursor
         if (updates.get_updates_buf) {
+          await this.storage.set(STORAGE_KEYS.CURSOR, updates.get_updates_buf)
           this.cursor = updates.get_updates_buf
-          // Persist cursor asynchronously — don't block the poll loop
-          this.storage.set(STORAGE_KEYS.CURSOR, this.cursor).catch(() => {})
         }
 
         retryDelayMs = 1_000

@@ -5,6 +5,8 @@ export interface HttpRequestOptions {
   body?: unknown
   timeoutMs?: number
   signal?: AbortSignal
+  /** Retry transient transport and timeout failures. Defaults to false. */
+  retry?: boolean
 }
 
 export interface HttpResponse<T = unknown> {

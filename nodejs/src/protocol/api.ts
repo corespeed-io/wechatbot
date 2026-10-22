@@ -68,7 +68,9 @@ export class ILinkApi {
     if (verifyCode) {
       path += `&verify_code=${encodeURIComponent(verifyCode)}`
     }
-    return this.http.apiGet<QrStatusResponse>(baseUrl, path, buildCommonHeaders())
+    return this.http.apiGet<QrStatusResponse>(baseUrl, path, buildCommonHeaders(), {
+      retry: true,
+    })
   }
 
   // ── Messages ──────────────────────────────────────────────────────────
@@ -79,6 +81,7 @@ export class ILinkApi {
     cursor: string,
     signal?: AbortSignal,
   ): Promise<GetUpdatesResponse> {
+    // The poller owns retries so each attempt reuses its current cursor.
     return this.http.apiPost<GetUpdatesResponse>(
       baseUrl,
       '/ilink/bot/getupdates',
@@ -114,6 +117,7 @@ export class ILinkApi {
       '/ilink/bot/getconfig',
       { ilink_user_id: userId, context_token: contextToken, base_info: this.baseInfo() },
       buildAuthHeaders(token),
+      { retry: true },
     )
   }
 
