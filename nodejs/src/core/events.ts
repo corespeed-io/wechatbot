@@ -10,12 +10,14 @@ export type BotEventMap = {
   message: [message: IncomingMessage]
   /** Fired when login completes. */
   login: [credentials: Credentials]
-  /** Fired when session expires and re-login is needed. */
+  /** Fired when the active session expires. */
   'session:expired': []
   /** Fired when re-login completes after session expiry. */
   'session:restored': [credentials: Credentials]
   /** Fired when the long-poll loop starts. */
   'poll:start': []
+  /** Fired after a successful poll, message processing, and cursor persistence. */
+  'poll:success': []
   /** Fired when the long-poll loop stops. */
   'poll:stop': []
   /** Fired on recoverable errors. */
@@ -68,6 +70,15 @@ export class TypedEmitter<EventMap extends { [K: string]: unknown[] } = { [K: st
       } catch {
         // Listener threw synchronously — swallow to avoid breaking emit loop
       }
+    }
+  }
+
+  /** Await listeners when the producer must not continue before they finish. */
+  async emitAsync<K extends keyof EventMap>(event: K, ...args: EventMap[K]): Promise<void> {
+    const set = this.listeners.get(event)
+    if (!set) return
+    for (const listener of set) {
+      await listener(...args)
     }
   }
 

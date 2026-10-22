@@ -6,9 +6,9 @@ import type { ILinkApi } from '../protocol/api.js'
 import type { WireMessage } from '../protocol/types.js'
 import type { Storage } from '../storage/interface.js'
 import { STORAGE_KEYS } from '../storage/interface.js'
-import { isAbortError } from '../transport/http.js'
 
 type PollerEventMap = {
+  success: []
   messages: [messages: WireMessage[]]
   'session:expired': []
   error: [error: unknown]
@@ -24,14 +24,17 @@ export class MessagePoller extends TypedEmitter<PollerEventMap> {
   private stopped = true
   private pollController: AbortController | null = null
   private readonly logger: Logger
+  private readonly signal?: AbortSignal
 
   constructor(
     private readonly api: ILinkApi,
     private readonly storage: Storage,
     logger: Logger,
+    signal?: AbortSignal,
   ) {
     super()
     this.logger = logger.child('poller')
+    this.signal = signal
   }
 
   /** Load persisted cursor from storage. */
@@ -51,13 +54,14 @@ export class MessagePoller extends TypedEmitter<PollerEventMap> {
 
   /** Start the long-poll loop. */
   async start(baseUrl: string, token: string): Promise<void> {
+    this.signal?.throwIfAborted()
     if (!this.stopped) return
     this.stopped = false
     this.logger.info('Long-poll loop starting')
 
     let retryDelayMs = 1_000
 
-    while (!this.stopped) {
+    while (!this.stopped && !this.signal?.aborted) {
       try {
         this.pollController = new AbortController()
         const updates = await this.api.getUpdates(
@@ -68,44 +72,54 @@ export class MessagePoller extends TypedEmitter<PollerEventMap> {
         )
         this.pollController = null
 
-        // Update cursor
+        // Process the batch before committing its cursor so failures replay it.
+        if (updates.msgs?.length > 0) {
+          await this.emitAsync('messages', updates.msgs)
+        }
+
         if (updates.get_updates_buf) {
+          await this.storage.set(STORAGE_KEYS.CURSOR, updates.get_updates_buf)
           this.cursor = updates.get_updates_buf
-          // Persist cursor asynchronously — don't block the poll loop
-          this.storage.set(STORAGE_KEYS.CURSOR, this.cursor).catch(() => {})
         }
 
         retryDelayMs = 1_000
-
-        // Emit messages if any
-        if (updates.msgs?.length > 0) {
-          this.emit('messages', updates.msgs)
-        }
+        this.emit('success')
       } catch (error) {
         this.pollController = null
 
-        if (this.stopped && isAbortError(error)) {
+        if (this.stopped || this.signal?.aborted) {
           break
         }
 
         if (error instanceof ApiError && error.isSessionExpired) {
           this.logger.warn('Session expired — emitting session:expired')
           this.emit('session:expired')
+          if (this.stopped) break
           // Pause until the client handles re-login
-          await delay(2_000)
+          try {
+            await delay(2_000, undefined, { signal: this.signal })
+          } catch (error) {
+            if (!this.signal?.aborted) throw error
+            break
+          }
           continue
         }
 
-        if (!isAbortError(error)) {
-          this.logger.error(`Poll error: ${error instanceof Error ? error.message : String(error)}`)
-          this.emit('error', error)
-        }
+        this.logger.error(`Poll error: ${error instanceof Error ? error.message : String(error)}`)
+        this.emit('error', error)
+        if (this.stopped) break
 
-        await delay(retryDelayMs)
+        try {
+          await delay(retryDelayMs, undefined, { signal: this.signal })
+        } catch (error) {
+          if (!this.signal?.aborted) throw error
+          break
+        }
         retryDelayMs = Math.min(retryDelayMs * 2, 10_000)
       }
     }
 
+    this.stopped = true
     this.logger.info('Long-poll loop stopped')
   }
 

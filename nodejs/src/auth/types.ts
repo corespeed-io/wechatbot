@@ -8,11 +8,11 @@ export interface Credentials {
 
 export interface QrLoginCallbacks {
   /** Called when a QR URL is available for the user to scan. */
-  onQrUrl?: (url: string) => void
+  onQrUrl?: (url: string) => void | Promise<void>
   /** Called when the QR code has been scanned (awaiting confirmation). */
-  onScanned?: () => void
+  onScanned?: () => void | Promise<void>
   /** Called when the QR code has expired and a new one will be requested. */
-  onExpired?: () => void
+  onExpired?: () => void | Promise<void>
   /**
    * Called when the server requires a pairing code (the digits shown in
    * WeChat on the user's phone). `isRetry` is true when a previously

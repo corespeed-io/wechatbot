@@ -1,4 +1,5 @@
 import { ApiError, TransportError } from '../core/errors.js'
+import { setTimeout as sleep } from 'node:timers/promises'
 import type { Logger } from '../logger/types.js'
 import type { HttpRequestOptions, HttpResponse, RetryPolicy } from './types.js'
 
@@ -8,6 +9,7 @@ const DEFAULT_RETRY_POLICY: RetryPolicy = {
   maxDelayMs: 10_000,
   isRetryable: (error: unknown) => {
     if (error instanceof ApiError) return false // API errors are definitive
+    if (error instanceof TransportError) return true
     if (error instanceof Error) {
       return error.name === 'AbortError' || error.name === 'TimeoutError'
     }
@@ -22,9 +24,11 @@ const DEFAULT_RETRY_POLICY: RetryPolicy = {
 export class HttpClient {
   private readonly retryPolicy: RetryPolicy
   private readonly logger: Logger
+  private readonly signal?: AbortSignal
 
-  constructor(options: { logger: Logger; retryPolicy?: Partial<RetryPolicy> }) {
+  constructor(options: { logger: Logger; signal?: AbortSignal; retryPolicy?: Partial<RetryPolicy> }) {
     this.logger = options.logger.child('http')
+    this.signal = options.signal
     this.retryPolicy = { ...DEFAULT_RETRY_POLICY, ...options.retryPolicy }
   }
 
@@ -32,15 +36,28 @@ export class HttpClient {
    * Execute an HTTP request with retries.
    */
   async request<T>(options: HttpRequestOptions): Promise<HttpResponse<T>> {
+    const requestSignal = this.signal && options.signal
+      ? AbortSignal.any([this.signal, options.signal])
+      : this.signal ?? options.signal
+    options = { ...options, signal: requestSignal }
+
     let lastError: unknown
 
     for (let attempt = 0; attempt <= this.retryPolicy.maxRetries; attempt++) {
+      options.signal?.throwIfAborted()
+
       try {
         return await this.executeRequest<T>(options)
       } catch (error) {
         lastError = error
 
-        if (attempt < this.retryPolicy.maxRetries && this.retryPolicy.isRetryable(error)) {
+        const shouldRetry =
+          options.retry === true &&
+          !options.signal?.aborted &&
+          attempt < this.retryPolicy.maxRetries &&
+          this.retryPolicy.isRetryable(error)
+
+        if (shouldRetry) {
           const delay = Math.min(
             this.retryPolicy.baseDelayMs * 2 ** attempt,
             this.retryPolicy.maxDelayMs,
@@ -48,7 +65,7 @@ export class HttpClient {
           this.logger.debug(`Retry ${attempt + 1}/${this.retryPolicy.maxRetries} in ${delay}ms`, {
             url: options.url,
           })
-          await sleep(delay)
+          await sleep(delay, undefined, { signal: options.signal })
           continue
         }
 
@@ -68,7 +85,7 @@ export class HttpClient {
     endpoint: string,
     body: unknown,
     headers: Record<string, string>,
-    options?: { timeoutMs?: number; signal?: AbortSignal },
+    options?: { timeoutMs?: number; signal?: AbortSignal; retry?: boolean },
   ): Promise<T> {
     const url = new URL(endpoint, normalizeBaseUrl(baseUrl)).toString()
     const response = await this.request<T>({
@@ -78,6 +95,7 @@ export class HttpClient {
       body,
       timeoutMs: options?.timeoutMs ?? 15_000,
       signal: options?.signal,
+      retry: options?.retry,
     })
     return response.data
   }
@@ -89,13 +107,16 @@ export class HttpClient {
     baseUrl: string,
     path: string,
     headers?: Record<string, string>,
+    options?: { timeoutMs?: number; signal?: AbortSignal; retry?: boolean },
   ): Promise<T> {
     const url = new URL(path, normalizeBaseUrl(baseUrl)).toString()
     const response = await this.request<T>({
       method: 'GET',
       url,
       headers,
-      timeoutMs: 15_000,
+      timeoutMs: options?.timeoutMs ?? 15_000,
+      signal: options?.signal,
+      retry: options?.retry,
     })
     return response.data
   }
@@ -167,10 +188,6 @@ export class HttpClient {
 
 function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.replace(/\/+$/, '') + '/'
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 function isAbortError(error: unknown): boolean {

@@ -95,7 +95,7 @@ export class Authenticator {
 
       // Pass QR URL to developer's callback — display is their responsibility
       if (callbacks?.onQrUrl) {
-        callbacks.onQrUrl(qr.qrcode_img_content)
+        await callbacks.onQrUrl(qr.qrcode_img_content)
       } else {
         this.logger.info(`Scan this QR code in WeChat: ${qr.qrcode_img_content}`)
       }
@@ -119,10 +119,10 @@ export class Authenticator {
               pendingVerifyCode = undefined
             }
             this.logger.info('QR scanned — confirm in WeChat')
-            callbacks?.onScanned?.()
+            await callbacks?.onScanned?.()
           } else if (status.status === 'expired') {
             this.logger.warn('QR expired — requesting new one')
-            callbacks?.onExpired?.()
+            await callbacks?.onExpired?.()
           } else if (status.status === 'confirmed') {
             this.logger.info('Login confirmed')
           }
@@ -161,6 +161,7 @@ export class Authenticator {
         if (status.status === 'verify_code_blocked') {
           this.logger.warn('Pairing code blocked after repeated mismatches — requesting new QR')
           pendingVerifyCode = undefined
+          await callbacks?.onExpired?.()
           break // Outer loop will request a new QR (counts toward the refresh limit)
         }
 
