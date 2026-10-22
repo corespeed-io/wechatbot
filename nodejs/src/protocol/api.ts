@@ -69,6 +69,7 @@ export class ILinkApi {
       path += `&verify_code=${encodeURIComponent(verifyCode)}`
     }
     return this.http.apiGet<QrStatusResponse>(baseUrl, path, buildCommonHeaders(), {
+      timeoutMs: 60_000,
       retry: true,
     })
   }

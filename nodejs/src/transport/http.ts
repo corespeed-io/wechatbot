@@ -1,4 +1,5 @@
 import { ApiError, TransportError } from '../core/errors.js'
+import { setTimeout as sleep } from 'node:timers/promises'
 import type { Logger } from '../logger/types.js'
 import type { HttpRequestOptions, HttpResponse, RetryPolicy } from './types.js'
 
@@ -23,9 +24,11 @@ const DEFAULT_RETRY_POLICY: RetryPolicy = {
 export class HttpClient {
   private readonly retryPolicy: RetryPolicy
   private readonly logger: Logger
+  private readonly signal?: AbortSignal
 
-  constructor(options: { logger: Logger; retryPolicy?: Partial<RetryPolicy> }) {
+  constructor(options: { logger: Logger; signal?: AbortSignal; retryPolicy?: Partial<RetryPolicy> }) {
     this.logger = options.logger.child('http')
+    this.signal = options.signal
     this.retryPolicy = { ...DEFAULT_RETRY_POLICY, ...options.retryPolicy }
   }
 
@@ -33,6 +36,11 @@ export class HttpClient {
    * Execute an HTTP request with retries.
    */
   async request<T>(options: HttpRequestOptions): Promise<HttpResponse<T>> {
+    const requestSignal = this.signal && options.signal
+      ? AbortSignal.any([this.signal, options.signal])
+      : this.signal ?? options.signal
+    options = { ...options, signal: requestSignal }
+
     let lastError: unknown
 
     for (let attempt = 0; attempt <= this.retryPolicy.maxRetries; attempt++) {
@@ -57,7 +65,7 @@ export class HttpClient {
           this.logger.debug(`Retry ${attempt + 1}/${this.retryPolicy.maxRetries} in ${delay}ms`, {
             url: options.url,
           })
-          await sleep(delay)
+          await sleep(delay, undefined, { signal: options.signal })
           continue
         }
 
@@ -180,10 +188,6 @@ export class HttpClient {
 
 function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.replace(/\/+$/, '') + '/'
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 function isAbortError(error: unknown): boolean {

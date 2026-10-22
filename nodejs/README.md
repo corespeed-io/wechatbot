@@ -46,10 +46,13 @@ src/
 ## Configuration
 
 ```typescript
+const controller = new AbortController()
 const bot = new WeChatBot({
   storage: 'file',            // 'file' | 'memory' | custom Storage
   storageDir: '~/.wechatbot',
   logLevel: 'info',           // 'debug' | 'info' | 'warn' | 'error' | 'silent'
+  autoRelogin: true,          // default: true; set false to handle session expiry in your app
+  signal: controller.signal,  // optional instance-wide cancellation
   loginCallbacks: {
     onQrUrl: (url) => renderQrCode(url),
     onScanned: () => console.log('Scanned!'),
@@ -145,9 +148,16 @@ bot.on('session:expired', () => { })
 bot.on('session:restored', (creds) => { })
 bot.on('error', (err) => { })
 bot.on('poll:start', () => { })
+bot.on('poll:success', () => { })
 bot.on('poll:stop', () => { })
 bot.on('close', () => { })
 ```
+
+`poll:success` fires after the update batch has been processed and its cursor has been persisted. If a message handler or storage write fails, the cursor is not committed and the batch may be delivered again. Make handlers safe to retry when they perform external side effects.
+
+When `autoRelogin` is `false`, an expired session stops polling and emits `session:expired` without starting another QR login. The default remains `true` for unattended bots. Aborting the optional instance `signal` cancels the bot's API requests and polling lifecycle.
+
+QR login callbacks may return promises. The login flow waits for `onQrUrl`, `onScanned`, and `onExpired` to finish before continuing, so applications can persist login state before the next QR status request.
 
 ### Message Types
 

@@ -26,6 +26,10 @@ import { HttpClient } from '../transport/http.js'
 // ═══════════════════════════════════════════════════════════════════════
 
 export interface WeChatBotOptions {
+  /** Cancels this instance's API requests and polling lifecycle when aborted. */
+  signal?: AbortSignal
+  /** Automatically start QR login after session expiry. Defaults to true. */
+  autoRelogin?: boolean
   /** Base URL for the iLink API (default: https://ilinkai.weixin.qq.com) */
   baseUrl?: string
   /** Storage backend: 'file', 'memory', or a custom Storage instance */
@@ -149,6 +153,8 @@ export class WeChatBot extends TypedEmitter<BotEventMap> {
   private credentials?: Credentials
   private messageHandlers: Array<(msg: IncomingMessage) => void | Promise<void>> = []
   private runPromise: Promise<void> | null = null
+  private readonly signal?: AbortSignal
+  private readonly autoRelogin: boolean
 
   constructor(options: WeChatBotOptions = {}) {
     super()
@@ -157,15 +163,17 @@ export class WeChatBot extends TypedEmitter<BotEventMap> {
     this.baseUrl = options.baseUrl ?? DEFAULT_BASE_URL
     this.logger = options.logger ?? createLogger({ level: options.logLevel ?? 'info' })
     this.storage = resolveStorage(options)
+    this.signal = options.signal
+    this.autoRelogin = options.autoRelogin ?? true
 
     // Build the layered architecture
-    this.http = new HttpClient({ logger: this.logger })
+    this.http = new HttpClient({ logger: this.logger, signal: options.signal })
     this.api = new ILinkApi(this.http, options.botAgent)
     this.auth = new Authenticator(this.api, this.storage, this.logger)
     this.parser = new MessageParser()
     this.middleware = new MiddlewareEngine()
     this.contextStore = new ContextStore(this.storage, this.logger)
-    this.poller = new MessagePoller(this.api, this.storage, this.logger)
+    this.poller = new MessagePoller(this.api, this.storage, this.logger, options.signal)
     this.sender = new MessageSender(this.api, this.contextStore, this.logger)
     this.typing = new TypingService(this.api, this.contextStore, this.logger)
     this.uploader = new MediaUploader(this.api, undefined, this.logger)
@@ -412,6 +420,7 @@ export class WeChatBot extends TypedEmitter<BotEventMap> {
    */
   async start(): Promise<void> {
     if (this.runPromise) return this.runPromise
+    this.signal?.throwIfAborted()
 
     const creds = this.requireCredentials()
 
@@ -611,11 +620,17 @@ export class WeChatBot extends TypedEmitter<BotEventMap> {
       }
 
       // Persist context tokens after batch
-      this.contextStore.flush().catch(() => {})
+      await this.contextStore.flush()
     })
 
     // Handle session expiry → re-login
     this.poller.on('session:expired', async () => {
+      if (!this.autoRelogin) {
+        this.poller.stop()
+        this.emit('session:expired')
+        return
+      }
+
       this.logger.warn('Session expired — initiating re-login')
       this.emit('session:expired')
 
@@ -634,6 +649,8 @@ export class WeChatBot extends TypedEmitter<BotEventMap> {
       }
     })
 
+    this.poller.on('success', () => this.emit('poll:success'))
+
     // Forward poller errors
     this.poller.on('error', (error) => {
       this.emit('error', error)
@@ -647,8 +664,8 @@ export class WeChatBot extends TypedEmitter<BotEventMap> {
 
     for (const result of results) {
       if (result.status === 'rejected') {
-        this.logger.error(`Handler error: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`)
-        this.emit('error', result.reason)
+        // The poller reports the failure and keeps the last committed cursor.
+        throw result.reason
       }
     }
   }
